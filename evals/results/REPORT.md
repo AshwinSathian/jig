@@ -60,13 +60,40 @@ There are nine fixture repos, each with one seeded trap. Commands grade them (hi
 
 The first grading credited the plain review with 3 and 4 — a regex missed its correct C1 finding, and a manual check caught that. This compares a fresh review with jig's rubric against a fresh review without it. **It does not test the claim the reviewer exists for:** that a fresh context beats the author grading its own plan in the same conversation. We haven't built that eval yet.
 
+## Reviewer eval, with held-out and clean cases (2.2.0)
+
+This is the eval the section above said we hadn't built: does a fresh-context jig-reviewer beat the author checking its own plan? `evals/reviewer/run.mjs` now has three cases and three arms, with 3 runs per cell:
+
+- **Cases:** `notes` is the tuning case (the 5 defects above). `invoices` is held out, with 5 defects: a duplicate CSV helper, all rows held in memory, an unmarked new dependency, a PDF export nobody asked for, and an account taken from the path. Its graders were frozen before anyone read a review of it. `clean-flag` is a control with nothing wrong, so any Important finding on it is a false positive.
+- **Arms:** a plain review with no jig; the jig-reviewer subagent ("fresh"); and the same session that wrote the plan checking it ("self"). Every arm gets the request and the same output format. Only fresh may start a subagent, and the run log shows it did in 9 of 9 runs. Self never used Agent or Skill.
+
+The sessions ran on the default `claude -p` model in an isolated config, which the transcripts show as Claude Sonnet 5.5 for nearly every turn. The other sections ran on Opus 5.5.
+
+| | Held-out recall | Tuning recall | Important findings on the clean control |
+|---|---|---|---|
+| Plain review | 15/15 | 12/15 | 0, 0, 0 |
+| jig-reviewer (fresh) | 15/15 | 15/15 | 0, 0, 0 |
+| Self-review | 15/15 | 12/15 | 0, 0, 0 |
+
+On the held-out case every arm found every seeded defect, and none flagged the clean plan. So on these cases, a fresh context doesn't find more than the author does. These are hand-checked numbers. The frozen held-out regexes scored plain and fresh at 13/15 and self at 15/15. Every miss was the PDF finding, written in words the regex didn't match ("the request didn't ask for"), and I read all 9 reviews to confirm each one flagged PDF export as Important scope creep.
+
+The rubric does show up in one place, and it accounts for the whole tuning gap. On the tuning case, the fresh reviewer called the single-column schema change an unmarked one-way door, which needs the owner's decision, in 3 of 3 runs. Plain and self raised the schema problem in every run, but never as a one-way door, so the tuning column counts that defect as missed for them. The other four tuning defects were found 3 of 3 by every arm.
+
+What went wrong first, and what that means for the numbers:
+- **The first "clean" control wasn't clean.** Its CLI had no data, and its flag parsing rejected `--json`. All three arms found both, which counts as recall on defects nobody planted, not as false positives. I fixed the fixture and reran only the control, so the table's control column comes from the second run (`reviewer-2026-11-251620.json`). Recall comes from the first (`reviewer-2026-11-251617.json`).
+- **Rounds-to-pass isn't measured.** The fresh reviewer re-reviewed the tuning plan after one canned fix and never returned ready in 3 runs. It kept finding real gaps in my "fixed" plan (files missing from Touch), and in one run it wrongly said the checks were undefined. A single fix can only pass at round 2, so this needs a builder in the loop, and that eval doesn't exist yet. It did behave as specified across rounds: it marked earlier findings fixed or still open, and in 1 of 3 runs it returned rethink after round 3.
+- **Cost:** $3.70 for both runs, plus $1.21 for four dry runs. Per-review costs in the first file are wrong, because parallel reviews shared a running total. That's fixed, and the second file is right, at about $0.07 to $0.10 a review.
+
+`node evals/reviewer/run.mjs --regrade <file>` re-scores saved reviews with the current grader without spending anything. The false-positive counter took four fixes before it matched the raw text. The tests in `test/reviewer-grade.test.mjs` pin each one.
+
 ## Not verified
 
 - Any result on a model other than Claude Opus 5.5.
 - More than 3 runs per cell, or any confidence interval.
 - Repositories larger than a few files, or tasks longer than one session.
 - Execution of a full multi-slice plan across sessions with the build skill and the Stop hook in a live run. The hooks are covered by unit tests (`test/hooks.test.mjs`), not by an end-to-end eval.
-- Self-review against fresh-context review (see above).
+- Fresh-context review beating self-review on anything other than naming one-way doors. With n=3 and one held-out case, every arm found everything.
+- Rounds-to-pass with a real builder in the loop.
 - Human-judged plan quality. No person has rated the plans.
 
 ## Reproduce

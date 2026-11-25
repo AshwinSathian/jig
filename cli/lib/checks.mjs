@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-export const KINDS = ['acceptance', 'regression', 'property', 'mutation', 'perf', 'security'];
+export const KINDS = ['acceptance', 'regression', 'property', 'mutation', 'perf', 'security', 'e2e', 'differential'];
 const ID_RE = /^[A-Za-z][\w.-]*$/;
 
 export function checksPathFor(planPath) {

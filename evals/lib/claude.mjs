@@ -15,12 +15,12 @@ export function arms({ jigDir, superpowersDir }) {
   };
 }
 
-// opts: { cwd, prompt, armFlags, model, budgetUsd, timeoutMs, stopOnSkill, extra }
-export function runClaude({ cwd, prompt, armFlags = [], model, budgetUsd = 2, timeoutMs = 600_000, stopOnSkill = false, extra = [] }) {
+// opts: { cwd, prompt, armFlags, model, budgetUsd, timeoutMs, stopOnSkill, extra, env }
+export function runClaude({ cwd, prompt, armFlags = [], model, budgetUsd = 2, timeoutMs = 600_000, stopOnSkill = false, extra = [], env = null }) {
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', ...ISOLATION, '--max-budget-usd', String(budgetUsd), ...armFlags, ...extra];
   if (model) args.push('--model', model);
   return new Promise((resolve) => {
-    const child = spawn('claude', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('claude', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env } : {}) });
     const out = { skills: [], tools: [], result: null, killed: false, stderr: '' };
     let buf = '';
     const timer = setTimeout(() => { out.killed = 'timeout'; child.kill('SIGTERM'); }, timeoutMs);

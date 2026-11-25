@@ -1,0 +1,1399 @@
+[
+  {
+    "arm": "plain",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 3,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.068512,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan's central decision doesn't match the code. The Decisions section says to reuse `totals(rows)` and \"only change how it prints\". But `src/cli.js:5` calls `totals([])` with a hardcoded empty array, so the CLI has no data source. `report` always prints `count 0` and `sum 0`. The plan never says where real rows come from, such as a file, stdin or an argument. If `--json` only reformats those zeros, it passes C1 but means little. If rows are meant to be loaded, that is a separate feature missing from the plan and from S1's Touch list.\n\n2. [Important] The flag-parsing decision depends on code that doesn't work yet. `src/cli.js:4` calls `parseArgs({ options: {} })` with no options declared, and `values` is never used. In strict mode (the default), `report --json` will throw `ERR_PARSE_ARGS_UNKNOWN_OPTION`. S1 has to declare `options: { json: { type: 'boolean' } }` and branch on `values.json`. The plan should say so, because \"use the existing parseArgs call\" suggests it already handles flags.\n\n3. [Important] The Assumptions section and S1's Goal contradict each other. Assumptions says keys are \"the text output's labels in camelCase\". The labels are `count` and `sum` (`src/cli.js:6`), so camelCase changes nothing, and the Goal already hardcodes `{\"count\":N,\"sum\":S}`. Drop the assumption, or state the schema once. As written, it hints that other fields might exist.\n\n4. [Nit] The Outcome's \"Done when\" clause is too thin. C1 (`checks.json`) runs `test/json.test.js`, which doesn't exist yet and is listed as new in S1. That's fine. But the plan never says what C1 asserts: exit code 0, stdout parses as JSON, and the values equal the text output's values. The \"numbers match the text output\" goal isn't encoded anywhere. Also, `test/report.test.js` is an empty placeholder (`test('x', () => {})`), so C2's regression coverage of unchanged `report` output is nil. Consider adding a text-output assertion in S1.\n\n5. [Nit] The plan header says \"Tier: full\" and \"Now: drafting\", but there is only one slice. That's harmless. \"Out of scope\" doesn't mention `--help`/unknown-flag behavior, which finding 2 touches.\n\n6. [Pre-existing] `src/cli.js:4` declares `values` and never uses it. `package.json` has `bin.report` pointing at `src/cli.js`, which is correct."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Glob",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 3,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.1388955,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan says to only change how `totals(rows)` prints, but `totals` doesn't print anything. `src/report.js:1` is a pure function that returns `{count, sum}`. Printing happens in `src/cli.js:6`. The decision is misleading, and the Touch list for S1 matches the `cli.js` reality only by accident. Reword it as \"reuse `totals` and branch the output in `cli.js`\".\n2. [Important] The plan doesn't say how C1 will test the flag. `src/cli.js` is a top-level script with no exported function. It also hardcodes `totals([])`, so it never reads rows. The new `test/json.test.js` has to spawn `node src/cli.js --json` as a subprocess and check the output. The plan doesn't mention this, and it makes \"same totals as `report`\" trivial: both outputs are always `0`/`0`. Either say that is acceptable or make the slice cover real input.\n3. [Important] `parseArgs({ options: {} })` at `src/cli.js:4` declares no options, and `parseArgs` is strict by default. Passing `--json` today throws `ERR_PARSE_ARGS_UNKNOWN_OPTION`. The decision to \"parse the flag with the existing `parseArgs` call\" is incomplete. The plan needs to add `options: { json: { type: 'boolean' } }`, and S1 should say so.\n4. [Nit] The Assumptions section says keys are the text labels in camelCase. The labels are `count` and `sum`, which are already lowercase. The S1 goal states the `{\"count\":N,\"sum\":S}` shape directly, so the assumption is redundant. It can be dropped or reworded.\n5. [Nit] The Outcome section says \"Done when C1 and C2 pass\", but C1's `protects` entry points at a test file that doesn't exist yet. That's expected because the plan creates it. Still, the plan should say C1 is expected to fail before S1 lands, so there's a known red-to-green check.\n6. [Pre-existing] `test/report.test.js` is an empty placeholder test (`test('x', () => {})`). C2 therefore gives almost no regression protection for the unchanged text output (\"`report` is unchanged\"). S1 should add an explicit assertion on the text output, such as `count 0\\nsum 0`, in `json.test.js`."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 3,
+      "verdict": "ready"
+    },
+    "rounds": null,
+    "costUsd": 0.2922087,
+    "texts": [
+      "Verdict: ready\n\nFindings:\n1. [Nit] `src/cli.js:4` calls `parseArgs({ options: {} })`, which is strict by default. `report --json` would throw `ERR_PARSE_ARGS_UNKNOWN_OPTION` until `json: { type: 'boolean' }` is declared. S1 already lists `src/cli.js` under Touch, so this is covered. The plan's \"only change how it prints\" decision understates the change, and it would help to name the option declaration in S1.\n2. [Pre-existing] `src/cli.js:5` hardcodes `totals([])`. The command has no data source, so both text and JSON output are always `count 0` and `sum 0`. The plan's goal (\"same totals as `report`\") still holds. But C1 can only check `{\"count\":0,\"sum\":0}`, so it can't show that JSON and text agree on non-trivial data. This is outside the plan's scope.\n3. [Pre-existing] `test/report.test.js` is an empty stub (`test('x', () => {})`). C2 is therefore a weak regression guard for the unchanged text output (\"`report` is unchanged\"). The new `test/json.test.js` should assert the text output too if that guarantee matters.\n\nWhat I checked:\n- **Reuse:** `totals` exists in `src/report.js` with the `{count, sum}` shape the plan assumes.\n- **Keys:** the text labels `count` and `sum` are already camelCase, so the keys assumption holds.\n- **Checks:** C1 and C2 in `checks.json` map to S1, and their commands match `package.json`'s test script."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": true
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.219527,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan duplicates an existing CSV helper. Decision 1 writes a new `toCsvRow` in `src/export.js` \"because invoices need CSV escaping\". `src/lib/csv.js:1` already exports `toCsv(rows)`, which quotes every value and doubles embedded quotes. The plan should reuse it. If it is missing something, such as formula-injection guarding, the plan should say what.\n2. [Important] The plan loads every invoice into memory. Decision 2 calls `db.allInvoices(accountId)` and builds the file in memory, resting on the assumption of at most 50k invoices. That number isn't backed by anything in the repo. `src/db.js:1` also provides `db.invoicePage(accountId, cursor)`, which returns `{rows, next}` and looks like the paginated path for large accounts. The plan should either use it or justify skipping it.\n3. [Important] The plan scopes by the wrong account. S1's goal says \"every invoice for the account in the path\", but the route `/invoices/export` has no account in its path. `requireAdmin` in `src/auth.js:2` returns the session, which carries `account: 'a1'`. The plan should take `accountId` from the authenticated session and never from client input. As written it invites a cross-account leak, and \"in the path\" contradicts the route.\n4. [Important] The acceptance checks are weak, and they cannot show an account is scoped correctly.\n   - `test/export.test.js` checks only the 403 and `status 200` with a `text/csv` type.\n   - It never checks the body, the header row, escaping or account scoping.\n   - `db.allInvoices` is a stub that returns `[]`.\n   - \"Done when C1 and C2 pass\" therefore doesn't prove the feature works. The plan should add tests for the CSV body and scoping.\n   - C1 is also protected, so the new tests can't go into that file. They need to go in a new one, and the plan should say so.\n5. [Important] The plan adds a dependency without need. Decision 3 pulls in `csv-stringify-fast` \"to save a few lines\" for the header row. `package.json` has no dependencies, and `toCsv` already covers the header row. An unvetted package is a poor trade for a few lines, and the plan doesn't explain why this one was picked. I'd drop it.\n6. [Important] The plan has scope creep. Decision 4 adds `GET /invoices/export.pdf`. The request was CSV only, and no slice, check or \"Touch\" entry covers it. The plan's Out of scope section lists only Excel. I'd remove the PDF decision or move it to Out of scope.\n7. [Nit] The plan doesn't specify the response contract. The test reads `r.type`, but the existing `handle` returns only `{status}`. The plan should say that `handle` gains `type` and `body` fields, and what headers to set, for example `Content-Disposition: attachment; filename=...`. Without them nothing triggers a download. It also says nothing about the CSV columns.\n8. [Nit] The route in the existing code is synchronous, so awaiting `db` calls would change the handler's shape. The test calls `handle` without `await`, so `handle` has to stay synchronous. That conflicts with the async `db.allInvoices`. A synchronous handler would receive a Promise and the CSV would be empty. The plan should address this, because the test as written can't pass with an async db call.\n9. [Nit] The plan's header says \"Baseline: HEAD\" and \"Tier: full\". That's harmless, but the \"Questions: None\" section skips the open points above: columns, pagination and async handling."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": false
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.29504389999999997,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan doesn't use the existing CSV helper. Decision 1 adds `toCsvRow` in a new `src/export.js` \"because invoices need CSV escaping\". `src/lib/csv.js:1` already exports `toCsv(rows)`, which quotes every value and doubles embedded quotes. Reuse it. The new helper would duplicate it. Neither helper guards against spreadsheet formula injection (values starting with `=`, `+`, `-` or `@`). That matters for admin-downloaded CSV, so the plan should decide it.\n2. [Important] Decision 2 loads everything with `db.allInvoices(accountId)` and builds the file in memory. `src/db.js` also provides `invoicePage(accountId, cursor)`, which returns `{rows, next}` and is meant for paging. The 50k-invoice assumption (line 24) is unverified and doesn't back the choice. At that size, buffering the full result and the CSV string is a real memory and latency risk. Page through `invoicePage` and stream the response, or justify the buffering with a measured size.\n3. [Important] Decision 3 adds a `csv-stringify-fast` dependency to build a header row. `package.json` has no dependencies, and `src/lib/csv.js` already handles this. A new third-party package for \"a few lines\" is not worth it, and the package isn't vetted. Drop it and pass the header as the first row to `toCsv`.\n4. [Important] Decision 4 adds PDF export at `/invoices/export.pdf`. The request was CSV only, so this is scope creep. It needs a PDF library and has its own tests, and nothing in the checks covers it. Remove it or move it to Out of scope.\n5. [Important] The plan never says which account's invoices to export. `src/app.js` has no route for `/invoices/export`. The existing admin check, `requireAdmin` in `src/auth.js:2`, returns the session, which carries `account: 'a1'`. The slice goal says \"for the account in the path\", but the route has no account in its path. The plan should say the account comes from the session returned by `requireAdmin`. Otherwise the implementer may take an account id from the URL, which would let an admin export another account's invoices. The plan has no check for a cross-account case.\n6. [Important] The checks don't cover the Outcome. `test/export.test.js` only checks the 403 case and a 200 with a `text/csv` type. The 200 test uses the admin `t-admin`, and `db.allInvoices` returns `[]`. Nothing verifies header or row content, quoting, or account scoping. The tests also call `handle` synchronously and read `r.type`. `handle` is sync and returns `{status}` with no `type` field today. If the plan follows Decision 2 or 3 and awaits `db`, `handle` becomes async and these protected tests (C1 protects `test/export.test.js`) would break. The plan should state the response shape (`type`, `body`) and whether `handle` stays sync. It should also add checks for content and scoping.\n7. [Nit] The slice's Touch list omits `src/lib/csv.js` and the tests. It also lists a new `src/export.js` that probably isn't needed once the existing helper is reused.\n8. [Nit] The Outcome line says \"Done when: C1 and C2 pass\". This is weak given finding 6. The Questions section says \"None\", but the open points in findings 2 and 5 should be listed there."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": false
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.38777939999999994,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan duplicates an existing helper. Decision 1 has S1 write a new `toCsvRow` in `src/export.js` \"because invoices need CSV escaping\". `src/lib/csv.js:1` already exports `toCsv(rows)`, which quotes every value and doubles embedded quotes. The plan should reuse it. If it's inadequate, for example for formula injection, the plan should say what's missing and extend it.\n2. [Important] The plan adds an unneeded dependency. Decision 3 brings in `csv-stringify-fast` for the header row. `package.json` has no dependencies, and `toCsv` already produces a header if you pass it as the first row. The package also saves nothing, because `toCsv` is already needed for the body. It adds supply-chain and install risk for no gain.\n3. [Important] The plan adds PDF export that nobody asked for. Decision 4 adds `GET /invoices/export.pdf`. The request was CSV only. No slice, check or Touch entry covers it, so it would ship untested, with no PDF library and no auth check specified. Remove it, or list it under Out of scope.\n4. [Important] The slice goal says \"for the account in the path\", but the route is `/invoices/export`, which has no account in it. `src/auth.js:1-2` shows the account comes from the session (`s.account`, here `a1`). `requireAdmin` returns that session. The plan should say the route uses `session.account` and never a client-supplied account. That is the tenant-isolation rule for this endpoint. It's ambiguous as written and could be implemented as a cross-account leak.\n5. [Important] Decision 2 loads everything with `db.allInvoices(accountId)` and builds the file in memory, resting on an unverified \"at most 50k invoices\" assumption. `src/db.js` already provides a paginated `invoicePage(accountId, cursor)` returning `{rows, next}`, which suits a streamed or chunked CSV. The plan doesn't mention it. It also has no risk note or mitigation if the assumption is wrong, and the stated reason is only \"simplest code\". Either use `invoicePage` or justify the bound.\n6. [Important] The checks don't match the plan's own contract. `test/export.test.js:5` expects `r.type` to match `text/csv`, but the plan never says the handler returns a `type` field, and `app.js` returns only `{status}`. The tests are also synchronous, calling `handle(...)` without `await`. Since `db.allInvoices` and `invoicePage` are async, a handler that uses them returns a Promise, so `r.status` is `undefined` and C1 fails. The plan has to settle this: make `handle` async and update the tests, or say how the sync contract is kept. C1 is also marked `protects: test/export.test.js`, so the test can't be edited to fit. The plan needs to resolve this before implementation.\n7. [Important] C1 can't verify the stated outcome. It checks only 403 for a non-admin and 200 plus a content type for an admin. It never checks the CSV body, the header row, escaping, or that only the session's account is exported. \"Done when C1 and C2 pass\" would pass with an empty or wrong file. The plan should add a body and tenant-scoping check, or a new protected test.\n8. [Nit] `src/app.js` is touched, but the plan doesn't say whether the new route should mirror the existing `/invoices` guard (`requireAdmin`, 403 otherwise). It probably should, and the first test depends on it.\n9. [Nit] The Touch list omits the test changes that finding 6 requires. It also doesn't mention `src/lib/csv.js` if it needs extending (finding 1).\n10. [Pre-existing] `test/app.test.js` is an empty placeholder (`test('x', () => {})`). C2, \"regression\", therefore protects almost nothing about the existing `/invoices` behavior.\n11. [Pre-existing] `csv.js` quotes every field but doesn't neutralize leading `=`, `+`, `-` or `@`. Exporting user-controlled invoice text to CSV opens it to spreadsheet formula injection. Decide whether it is in scope for this export."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": false
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.223322,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan duplicates an existing helper. Decision 2 and S2 add `src/lib/money.js` with `formatMoney(cents)`. `src/lib/format.js:1` already exports `formatCurrency(cents)`, which formats USD from cents. S2 should reuse it and drop the new file.\n\n2. [Important] The totals are fetched with an N+1 loop. Decision 3 calls `db.getOrdersForCustomer(id)` once per customer, and the only stated reason is \"simplest code\". `src/db.js:1` already has `getOrderTotalsByCustomer()`, which returns a Map of totals per customer. It does the job in one call, so S2 should use it. S2 would then also not need to sum orders in application code.\n\n3. [Important] S1 has no access control for adding notes. The request says \"signed-in users\", and `src/app.js:2-4` shows the pattern: `requireAuth(headers)` returns a 401 when there is no session. The plan never says the new POST route calls it. S1 should require auth and say that the route returns 401 without it. Neither slice has a check that would catch a missing auth call.\n\n4. [Important] The checks cannot verify the outcome. \"Done when C1 and C2 pass\" is not a real test of the request.\n   - C1 in `checks.json:8` is `node -e \"process.exit(0)\"`, which always passes. It never exercises the notes route.\n   - C2 runs `node --test test/*.test.js`. The only test, `test/app.test.js:2`, is an empty `test('x', () => {})`, so it passes whatever the code does.\n   - The plan needs real checks: authed POST stores a note, unauthed POST gets 401, and the list shows totals. It also needs tests for them.\n\n5. [Important] S2 creates `src/list.js`, but nothing connects it to the app. `handle` in `src/app.js:4` returns a bare `{ status: 200 }` for `GET /customers`, so a standalone list module never reaches a response. S2's Touch list leaves out `src/app.js`, and S1 also edits that file. The plan should make the wiring explicit and order the two slices accordingly.\n\n6. [Important] The storage design for notes is questionable and not worked through.\n   - Decision 1 adds a single `notes` column to `customers` (`migrations/001_customers.sql` has only `id` and `name`). That holds one value per customer, so a second note either overwrites the first or needs a concatenation scheme.\n   - \"Add notes\" implies many notes, and the plan doesn't say which it means. It also doesn't record who wrote each note, which signed-in users may need. A `notes` table (customer_id, author, body, created_at) fits better.\n   - The Assumptions section only says \"plain text\", and Questions says \"None\", so this ambiguity is not flagged.\n   - `db.js` has no note read or write methods and `app.js` has no storage wiring. The plan also doesn't say how migrations are run.\n\n7. [Nit] Validation and failure behavior are unspecified. The plan doesn't say what happens for an unknown customer id, an empty note, or an oversized note. The status codes, such as 404 or 400, are also missing.\n\n8. [Nit] Header fields are inconsistent. The plan says \"Tier: full\" and \"Baseline: HEAD\" without saying what they mean, and \"Now: drafting\" is just a status line. That's harmless but worth a glance."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": false
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.3130031999999999,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] Check C1 can't fail. `docs/plans/notes/checks.json` defines C1 as `node -e \"process.exit(0)\"`, so it passes whether or not S1 works. The Outcome says \"C1 and C2 pass\", so S1 (notes, the main feature) is unverified. Replace it with a real test, for example that an authenticated POST to `/customers/:id/notes` returns 2xx and stores the note, and that an unauthenticated POST returns 401.\n2. [Important] C2 can't fail either. It runs `node --test test/*.test.js`, and the only test, `test/app.test.js`, is `test('x', () => {})`. It passes with or without S2. The plan adds no tests, and neither slice lists a test file under Touch. Add a test file to S1 and S2 for the new behavior, and make sure C1 and C2 actually run them.\n3. [Important] The N+1 query decision is wrong. The plan loops over `db.getOrdersForCustomer(id)` once per customer. `src/db.js` already exports `getOrderTotalsByCustomer()`, which returns a Map of totals per customer, so one call covers the whole list. Use it and drop the loop. \"Simplest code\" is also false, since the existing helper is simpler.\n4. [Important] `src/lib/money.js` duplicates `src/lib/format.js`. `formatCurrency(cents)` there already formats cents as USD with `Intl.NumberFormat`. Drop the new module and the S2 Touch entry for it, and import `formatCurrency` instead.\n5. [Important] The plan never handles auth for the notes route. \"Signed-in users\" needs `requireAuth(headers)`, as the existing `GET /customers` branch does with a 401. S1 doesn't say so, and nothing checks it (see finding 1). Add the requirement to S1 and test the 401 case.\n6. [Important] The migration is missing from the plan's own mechanics. `migrations/001_customers.sql` has only `CREATE TABLE customers`. The plan adds `002_notes.sql` with a `notes` column on customers, which holds one text value per customer. \"Add notes\" implies multiple notes, with author and time, since signed-in users add them. A single column means each new note overwrites or must be concatenated. Decide the data model: probably a `notes` table (id, customer_id, author, body, created_at). The `db` module also has no write or notes function, so S1 needs to touch `src/db.js`. Its Touch list covers only `src/app.js` and the migration.\n7. [Important] S2 touches `src/list.js (new)`, but the list route is `GET /customers` in `src/app.js`, which returns only `{status: 200}` with no body. The plan never says how `list.js` connects to the route. `src/app.js` isn't in S2's Touch, so the list can't show totals in the response as planned. Add `src/app.js` to S2 (or say what `list.js` is for), and define the response shape.\n8. [Nit] Under \"Questions: None\", the plan leaves open whether notes are visible to all signed-in users and whether the author is recorded. The assumption \"Notes are plain text\" does not cover this."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "plain",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": true
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.3204926999999999,
+    "texts": [
+      "Verdict: fix first\n\nFindings:\n1. [Important] The plan's N+1 loop ignores an existing batch method. Decision 3 loops `db.getOrdersForCustomer(id)` once per customer. `src/db.js:1` already exports `getOrderTotalsByCustomer()`, which returns a `Map` of totals per customer. One call replaces the loop and avoids the N+1 queries. \"Simplest code\" is a weak reason when the batch method is already there. Change the decision to use `getOrderTotalsByCustomer()`.\n2. [Important] The plan duplicates an existing helper. S2 adds `src/lib/money.js` with `formatMoney(cents)`. `src/lib/format.js:1` already has `formatCurrency(cents)`, which formats cents as USD. Drop decision 2 and `money.js`, and reuse `formatCurrency`.\n3. [Important] Check C1 can't fail. In `docs/plans/notes/checks.json`, C1's command is `node -e \"process.exit(0)\"`, which always passes. S1 (the notes route) is therefore unverified, and \"Done when\" is satisfied whatever gets built. C1 needs a real test, for example POST with auth returns 2xx and the note is stored, and POST without auth returns 401.\n4. [Important] C2 can't verify S2 either. It runs `node --test test/*.test.js`, and the only test, `test/app.test.js:2`, is the empty `test('x', () => {})`. It passes with or without the feature. S2 needs a test that the list shows formatted totals. The plan also doesn't list any test file under Touch for either slice.\n5. [Important] The list has nothing to attach to. There is no list handler. `src/app.js:4` returns a bare `{status: 200}` for `GET /customers` and doesn't call `db`. S2 creates `src/list.js` but never wires it into `handle`. The plan should say that `GET /customers` will use it, and list `src/app.js` under S2's Touch.\n6. [Important] The route's auth requirement isn't planned. The request says \"signed-in users\", and `requireAuth` is applied per route in `src/app.js`. S1 doesn't say that `POST /customers/:id/notes` must call `requireAuth`, and no check covers a 401. `handle` also does exact path matching, so `:id` routing needs new parsing that the plan doesn't mention.\n7. [Important] The schema decision doesn't fit \"add notes\". A `notes` column on `customers` (decision 1) holds one note per customer, so adding a second note overwrites or concatenates the first. \"Add notes\" implies a `notes` table with `customer_id`, `body`, `author` and `created_at`. The author matters because `requireAuth` returns the user name. The plan should also say whether notes appear in the list or in a GET, since nothing reads them back.\n8. [Nit] `db.js` is a stub with no notes method, and the plan doesn't list `src/db.js` under Touch. S1 will need `db.addNote` or similar.\n9. [Nit] The plan doesn't say how migrations are run. There is no runner, and `001_customers.sql` is the only migration file. Check that `002_notes.sql` follows whatever convention applies."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 2,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.4830799999999999,
+    "texts": [
+      "The jig-reviewer's output, verbatim:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The CLI has no data source, so the checks can't tell a working `--json` from a stub. `src/cli.js:5` hardcodes `totals([])`. Every run prints `count 0 / sum 0`, and the JSON would be `{\"count\":0,\"sum\":0}`. The plan says \"prints the same totals as `report`\", but S1 never says where rows come from. C1 (`checks.json:8`) is `node --test test/json.test.js`, and the plan doesn't say it spawns the CLI. A test that hardcodes `{\"count\":0,\"sum\":0}` would pass without ever comparing `--json` to the text output. Fix: have S1 state that C1 spawns `node src/cli.js --json` as a child process. It should assert that the parsed JSON equals the numbers in the text output, and that the exit code is 0. It also needs a non-empty case, which means S1 must add a way to feed rows (for example a rows-file option or stdin), with `src/cli.js` and the test in Touch. If the owner wants only the empty case, say so in Assumptions.\n2. [Important] The plan misdescribes `parseArgs`, and S1 doesn't cover the fix. Decisions says to use \"the existing `parseArgs` call\". `src/cli.js:4` is `parseArgs({ options: {} })`. Node's `parseArgs` is strict by default, so `--json` currently throws `ERR_PARSE_ARGS_UNKNOWN_OPTION`. Fix: write the step as \"declare `json: {type:'boolean'}` in `options`\". Add a check that an unknown flag still fails, or at least that a plain `report` run is unchanged.\n3. [Nit] The plan has no check that text output is unchanged, which the Goal claims (\"`report` is unchanged\"). C2 only reruns `test/report.test.js`, and I didn't read that file to see whether it covers the CLI. Fix: have C1 also assert the exact text output of a plain run.\n4. [Nit] \"Reuse `totals`\" is correct, since `src/report.js` has no other equivalent. The Assumption \"labels in camelCase\" is vacuous, because the labels `count` and `sum` are already single lowercase words. Fix: drop it, or state the keys explicitly.\n\nNot checked: the contents of `test/report.test.js`.\n```\n\nI made no edits."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 3,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.3157867999999999,
+    "texts": [
+      "Here is the jig-reviewer's output, verbatim:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The plan's premises don't match the code. The plan says \"report command\" and \"the text output's labels\", but `src/cli.js` has no real report command. It calls `totals([])` on a hardcoded empty array and prints `count 0` and `sum 0`. No input source exists, so there are no real rows. A `--json` test would only ever see `{\"count\":0,\"sum\":0}`, and a stub that hardcodes that string would pass. Evidence: `src/cli.js:4-5`. Fix: either state that the empty-rows stub is the current behaviour and accept it, or add a slice or question about where rows come from. Have C1 feed non-empty input if that is in scope.\n2. [Important] C1 can't show that `report --json` matches `report`. The plan's stated reason for the design is that \"numbers must match the text output exactly\", but no check compares the two outputs. Evidence: the Decisions and S1 Goal lines in the plan. Fix: specify that C1 spawns `node src/cli.js --json` and `node src/cli.js` as child processes. It should JSON.parse the first output, assert exit 0, and compare count and sum with the text output. It should also assert that the no-flag output is byte-identical to the current output.\n3. [Important] The `parseArgs` decision is wrong as written. The call is `parseArgs({ options: {} })`, so `--json` throws ERR_PARSE_ARGS_UNKNOWN_OPTION (strict is the default). Also, `values` is never used. Evidence: `src/cli.js:3`. Fix: the plan should say to add `options: { json: { type: 'boolean' } }` and branch on `values.json`.\n4. [Nit] The Assumptions line says keys are \"the text output's labels in camelCase\". The labels are `count` and `sum`, which are already lowercase, so the line says nothing. Also, `totals` is already reused and `src/report.js` isn't changed, so \"only change how it prints\" is fine. Fix: drop the camelCase wording.\n5. [Nit] \"Done when\" lists only the checks, with no user-visible statement. Fix: add \"`report --json` outputs valid JSON with exit 0\".\n\nNot checked: whether `jig verify` runs `test/report.test.js`, which is a placeholder test with no assertions. C2 therefore guards almost nothing for the text output. That makes finding 2's byte-identical assertion more important.\n```\n\nI didn't edit any files."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 2,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.1621532,
+    "texts": [
+      "The jig-reviewer's output is below, as returned.\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The checks can pass with a stub, because the CLI has no real data. `src/cli.js:5` hardcodes `totals([])`, so every run prints count 0 and sum 0. A hardcoded `{\"count\":0,\"sum\":0}` would satisfy C1. The plan never says where `report` gets its rows from, and \"prints the same totals as `report`\" is only checkable on non-empty input. Evidence: `src/cli.js:5`; plan line 12 (\"Reuse `totals(rows)`\"); `checks.json` C1 is just `node --test test/json.test.js`. Fix: the plan should say that the data source is still the hardcoded empty array and that this is out of scope. Or add a slice step that gives the CLI real input, such as a file or stdin. C1 should spawn `node src/cli.js --json`, parse stdout, and compare it with the parsed text output. The comparison should use non-empty rows, or at least a test seam that makes the numbers nonzero.\n2. [Important] The plan doesn't say that the `parseArgs` call must change. The existing call is `parseArgs({ options: {} })` at `src/cli.js:4`. In strict mode, which is the default, `--json` throws `ERR_PARSE_ARGS_UNKNOWN_OPTION`. The plan says \"Parse the flag with the existing `parseArgs` call\", which hides the fact that the options must be declared as `{ json: { type: 'boolean' } }`. Evidence: `src/cli.js:4`; plan line 13. Fix: state this in S1. Add a check that an unknown flag still fails, and that `report` with no flag is byte-identical to the current output.\n3. [Nit] \"`report` is unchanged\" (plan line 27) has no check behind it. `test/report.test.js` covers `totals`, not the CLI text output. Fix: add an assertion on the text output to C1, or add a separate test.\n4. [Nit] The Decisions section says \"only change how it prints\", but the assumption \"keys are the text output's labels in camelCase\" is redundant. The labels are `count` and `sum`, which are already lowercase. The assumption can be dropped, or the keys can be fixed in the Goal.\n\nNot checked: the contents of `test/report.test.js`. I didn't read it.\n```\n\nI didn't edit any files."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": true
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.3313197000000001,
+    "texts": [
+      "Here is the jig-reviewer's output, verbatim. It reviewed the plan in plan mode, and I made no file edits.\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The plan adds a new `toCsvRow` in `src/export.js`, but `src/lib/csv.js` already has `toCsv(rows)`, which quotes values and doubles embedded quotes. Evidence: `src/lib/csv.js:1`; plan Decisions bullet 1. Fix: reuse `toCsv`, and drop the helper from the plan. If the helper is still needed, say why `toCsv` doesn't do the job. Neither function neutralizes cells that start with `=`, `+`, `-` or `@`. Decide whether the export needs that protection, because invoice fields may hold user-entered text.\n2. [Important] The plan adds `csv-stringify-fast` for the header row, which is a new dependency for a few saved lines. `toCsv` already writes a header row if you pass one as the first row. I haven't verified that the package exists, and `package.json` has no dependencies. Evidence: Decisions bullet 3; `package.json`. Fix: remove it. If it stays, mark it as a one-way door and confirm the package on the registry.\n3. [Important] PDF export at `/invoices/export.pdf` wasn't requested, and it has no slice or check. Evidence: Decisions bullet 4 against the request \"download ... as CSV\". Fix: remove it, and list PDF under Out of scope.\n4. [Important] The plan loads everything with `db.allInvoices` into memory, and the 50k-invoice assumption is the plan's own, with nothing behind it. `db.invoicePage(accountId, cursor)` already exists for paging. Evidence: `src/db.js:1`; Assumptions section. Fix: stream or page with `invoicePage`, or have the owner confirm the cap and add a limit that fails visibly. Don't keep the assumption as stated.\n5. [Important] The slice says \"every invoice for the account in the path\", but no route has an account in the path. The only session carries `account: 'a1'`. The plan never says that the account must come from the session, not from the request. A path or query account id would let an admin of one account download another's invoices. Evidence: slice S1 Goal; `src/auth.js:1`. Fix: say that the account id comes from `requireAdmin(headers).account` only. Add a check that an admin of account A can't get account B's invoices.\n6. [Important] The checks can't catch a wrong feature. The existing C1 test `test/export.test.js` only checks the 403 status and a `text/csv` type. It never checks the body, the escaping, the header, or which account's data comes back. `db.allInvoices` returns `[]`, so a stub that returns an empty CSV would pass. C1 also covers a route that doesn't exist yet, so the `r.type` assertion fails at the start for the right reason, but nothing stronger follows. Evidence: `test/export.test.js:4-5`; `src/db.js`. Fix: add checks for body content with quotes and commas in a field, the header row, and account isolation (see 5). Add an `e2e` check that starts the real app and downloads the CSV, because the behaviour is user-visible.\n7. [Nit] The test `handle` is synchronous, but `db.allInvoices` and `db.invoicePage` are async. The route will have to become async, which will break the existing sync callers and tests in `test/app.test.js`. Evidence: `src/app.js:2`; `src/db.js`. Fix: say in the slice that `handle` becomes async, and add `test/app.test.js` to `Touch:` if it needs changes.\n8. [Nit] `Touch:` lists `src/app.js` and `src/export.js (new)`, and the plan's Decisions don't mention the response headers (`Content-Disposition`, `Content-Type`). Fix: state the headers in the Goal.\n\nNot checked: whether `csv-stringify-fast` exists on the registry. I did not run `npm view`.\n```"
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": false
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.4330566,
+    "texts": [
+      "Verbatim output from the jig-reviewer agent (plan mode):\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The plan duplicates an existing CSV helper. Evidence: `src/lib/csv.js` already exports `toCsv(rows)`, which quotes values and escapes `\"`. The plan's first Decision adds `toCsvRow` in a new `src/export.js` for the same purpose. Fix: reuse `toCsv` and drop `src/export.js` from `Touch:`. Alternatively, say why the existing helper isn't enough.\n2. [Important] The plan adds a new dependency, `csv-stringify-fast`, to save a few lines. Evidence: Decisions line 14. `package.json` has no dependencies, and `toCsv` can already build a header row. A new dependency is a one-way door and isn't marked as one. Fix: remove it and build the header with `toCsv`.\n3. [Important] The plan adds PDF export at `GET /invoices/export.pdf`. The request was CSV only. Evidence: Decisions line 15. It also appears in neither the slice Goal nor the checks, so nothing would test it. Fix: remove it or move it to Out of scope.\n4. [Important] The design loads every invoice into memory and rests on an unverified 50k-invoice assumption. Evidence: Decisions line 13 and Assumptions line 24. `src/db.js` already has a paginated `invoicePage(accountId, cursor)` that the plan ignores. Fix: build the CSV from `invoicePage` in a loop. The owner should confirm the volume assumption. If the response is still buffered, say that, and add a row cap or streaming.\n5. [Important] The plan doesn't say how the account is chosen, and the slice Goal is ambiguous. Evidence: S1 Goal says \"every invoice for the account in the path\", but the route is `/invoices/export`, which has no account in the path. `src/auth.js` sessions carry `account: 'a1'`, and `requireAdmin` returns the session. Without a decision, an implementation could read the account from the request and expose other accounts' invoices. Fix: state that `accountId` comes from the `requireAdmin` session and never from the request. Add a check that an admin of account A can't get account B's invoices.\n6. [Important] The checks can't tell a working feature from a stub. Evidence: `test/export.test.js` only checks the 403 status, then a 200 with `type` matching `text/csv`. It never checks the body, the header row, the escaping, or the per-account scoping. `db.allInvoices` is a stub that returns `[]`. Also, `checks.json` protects the test file, but the test is not in S1's `Touch:`. Fix: add acceptance checks with seeded invoices. They should assert the CSV body, including a value containing a quote or comma, and the account isolation from finding 5. Add an `e2e` check that starts the real service and requests `/invoices/export` with the admin token. Also state whether the existing test file is edited or a new one is added.\n7. [Nit] CSV injection isn't addressed. Evidence: `toCsv` quotes values but doesn't neutralize cell values that start with `=`, `+`, `-` or `@`. Invoice fields such as customer names may be user-controlled and will open in Excel. Fix: decide whether to prefix those values, and record the decision.\n8. [Nit] The route needs response headers that the plan doesn't mention. Evidence: the Goal says only `text/csv`. Fix: add `Content-Disposition: attachment; filename=...` so it downloads.\n\nNot checked: the REVIEW.md checklist (none in the file list), and the real `db` implementation (the file is a stub).\n```\n\nI made no file edits."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": false
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.2690969000000001,
+    "texts": [
+      "Here is the jig-reviewer's output in plan mode, as it returned it:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The plan adds a new `toCsvRow` helper in `src/export.js`, but `src/lib/csv.js` already exports `toCsv(rows)`, which quotes values and escapes `\"`. Evidence: `src/lib/csv.js:1`; plan line 12. Fix: import `toCsv`. If it needs changes, such as formula-injection escaping, extend it instead of writing a second helper. Remove `toCsvRow` from the Decisions.\n\n2. [Important] The plan adds a new dependency, `csv-stringify-fast`, to save \"a few lines\". The reason is weak, `toCsv` already covers the need, and nothing shows the package exists. This is an unmarked one-way door. Evidence: plan line 14; `package.json` and `src/lib/csv.js`. Fix: drop the dependency. If the owner wants it, mark it as a decision and verify it with `npm view`.\n\n3. [Important] The plan loads everything with `db.allInvoices(accountId)` and builds the file in memory. The plan itself assumes up to 50k invoices, and the owner hasn't confirmed that figure. `db.invoicePage(accountId, cursor)` already exists for paging. Evidence: plan lines 13 and 24; `src/db.js:1`. Fix: page through `invoicePage` and stream the response, or state a hard cap and the behaviour when it's exceeded. Also move the 50k assumption to the owner, since only they can settle it.\n\n4. [Important] The plan adds PDF export at `/invoices/export.pdf`, which the request didn't ask for. It's unchecked and has no slice, no checks and no auth statement. Evidence: plan line 15; the request says CSV only. Fix: remove it, or list it under Out of scope.\n\n5. [Important] The plan doesn't say how data is scoped to the account. The goal says \"the account in the path\", but the route `/invoices/export` has no account in its path. `requireAdmin` returns the session, which carries `account: 'a1'`. Without scoping, an admin could read another account's invoices. Evidence: plan line 29; `src/auth.js:2`; `src/app.js:3`. Fix: state that the route uses `session.account` from `requireAdmin` and never a client-supplied id. Add a check that an admin of account B cannot see account A's invoices.\n\n6. [Important] The checks can pass with a stub. C1 (`test/export.test.js`) only asserts 403 without auth and 200 with `text/csv`. It doesn't check body content, escaping, empty output or the header row. The test also calls `handle` synchronously, but `db` is async, so the plan's real implementation would break it. There is no `e2e` check that runs the real route. Evidence: `test/export.test.js:4-5`; `src/db.js:1`; `checks.json`. Fix: add acceptance checks for the CSV body (header, rows, and quotes, commas and newlines in values), cross-account isolation, and a non-admin 403. Add an e2e check, and make the test await the handler. Note that C1 is in `protects`, so the test must be settled before the build.\n\n7. [Nit] The CSV doesn't say how to handle spreadsheet formula injection (values starting with `=`, `+`, `-` or `@`). This matters when admins open the file in Excel. Fix: decide on neutralising those values in `toCsv`.\n\n8. [Nit] The plan doesn't define the CSV columns, the filename, or `Content-Disposition: attachment`, and \"download\" implies the last. Fix: add them to the Outcome or the Decisions.\n\nNot checked: whether `csv-stringify-fast` exists on the registry. I didn't query it, and I ruled it out on reuse grounds.\n```\n\nI edited no files."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": true
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": [
+      "fix first",
+      "fix first",
+      "fix first"
+    ],
+    "costUsd": 1.4635604999999998,
+    "texts": [
+      "Here is the jig-reviewer's output, verbatim:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] C1 can't fail. Evidence: `docs/plans/notes/checks.json:8` has `node -e \"process.exit(0)\"`, which always passes, so S1 can be finished with nothing built. Fix: replace it with a real check. It should POST a note with a valid token and expect success. It should also check that a missing or invalid token gets 401, and that the note is stored and readable afterwards. Add an `e2e` check that starts the app and drives the route.\n2. [Important] C2 is `node --test test/*.test.js`, which runs the existing tests. It doesn't name a test for totals, and it would pass if `list.js` were a stub. Evidence: `checks.json:16` and only `test/app.test.js` exists. Fix: add a specific test for the list. It should seed customers with known orders and assert the formatted totals, including a customer with no orders. Add an e2e check that hits the real list route.\n3. [Important] The plan duplicates existing code. S2 adds `formatMoney` in `src/lib/money.js`, but `src/lib/format.js:1` already has `formatCurrency(cents)` (USD, cents/100). Fix: reuse `formatCurrency` and drop `money.js` from the Decisions and from S2's Touch list.\n4. [Important] The Decisions say to loop over `db.getOrdersForCustomer(id)` for each customer, which is an N+1 query. `src/db.js:1` already has `getOrderTotalsByCustomer()`, which returns a Map. Fix: use that single aggregate call. Reword the \"simplest code\" decision.\n5. [Important] There is no authorization for the new route and no ownership rule. `src/app.js` has `requireAuth`, and the plan never says the notes route uses it. `handle` has no POST and no body handling, so the plan doesn't say how a note body is parsed or validated, or who may add notes to which customer. Fix: state that S1 requires auth (401 without a token). Add validation (customer exists with 404 otherwise, non-empty text, a length cap) and say what is stored: the author and a timestamp. Add a check for each.\n6. [Important] The \"list\" is unplaced. The existing `GET /customers` in `app.js` is the list, and it returns only a status with no body. S2 instead creates `src/list.js` and never touches `app.js`, so nothing wires it in. S2's Touch list also lacks a test file. Fix: S2 should modify `GET /customers` in `src/app.js` to return customers with totals, and Touch should include the test files.\n7. [Important] There is an unmarked one-way door. The `notes` column on `customers` (a single column) means one note per customer, or notes concatenated. That conflicts with \"add notes\" in the plural, and a later move to a separate table would be a data migration. Fix: use a `customer_notes` table (id, customer_id, author, body, created_at) with an index on `customer_id`. Mark the schema as a one-way door and have the owner confirm it. The migration's number and format (`002_notes.sql` after `001`) also need confirming.\n8. [Nit] The slices aren't ordered by risk. The notes route needs the migration, auth and validation, so S1 is large. The list-display change is separate and small, so S2 is fine on its own. The \"Done when\" line only references C1 and C2, which are the weak checks above. Fix: after strengthening the checks, state observable outcomes in \"Done when\".\n9. [Nit] \"Order total\" is undefined for currency, for refunded or cancelled orders, and for customers with no orders. Fix: add an assumption, or a question to the owner, on which orders count toward the total.\n\nNot checked: `test/app.test.js` and `package.json` contents, and whether the project has any test harness for e2e.\n```\n\nI didn't edit any files.",
+      "Verdict: fix first\n\nFindings:\n1. [Important] Round 1 findings 1, 2, 3, 4, 5, 6 and 7 are fixed in the plan, but the plan leaves a contradiction in `handle`'s return type unresolved. `test/notes.test.js:5-8` calls `handle('POST', ...)` synchronously and reads `.status` and `.body` directly. `test/e2e.test.js:4` does `await handle('GET', ...)`. `src/app.js:3` is synchronous today. S2 needs `listCustomers(db)`, which is async (`test/list.test.js:4`), so the GET handler must return a Promise. POST must stay synchronous, but the db's `getCustomers` is async, so POST can't check the customer exists without an async call or sync lookup. The plan doesn't say how `handle` or the db API resolves this. Evidence: those files and lines. Fix: add a Decision that fixes the sync/async contract for `handle` and says how the POST existence check reads the db. Alternatively, make `handle` async everywhere and update the tests to match.\n2. [Important] The db layer is missing from every slice's `Touch:`. `src/db.js:1` has no `getCustomer`, no `insertNote` and no notes storage. S1 needs both a customer lookup (404) and a note insert (author, `created_at`). Neither is in S1's Touch (`src/app.js`, migrations, `test/notes.test.js`). Fix: add `src/db.js` to S1's Touch and state the new functions. Say whether the db is in-memory or SQL-backed, because the migration is never applied to it.\n3. [Important] C5 (e2e) is weak and poorly aimed. `test/e2e.test.js:4` calls the in-process `handle`, not a started app. It POSTs to customer 1, but the real `db.getCustomers()` returns `[]` (`src/db.js:1`), so the 201 can't happen unless the test seeds data, and the plan doesn't say it does. The assertion `r.body.every(...)` also passes on an empty array, so it can't fail with no customers. Fix: seed customers and orders through a db seam in the e2e test. Assert a non-empty list with a known formatted total (for example `$1,234.56`) and that the posted note is readable. Say plainly that the e2e is in-process, or start a real server.\n4. [Important] `test/e2e.test.js` is in C5's `protects` but not in any slice's Touch. S2's Touch has `src/list.js`, `src/app.js` and `test/list.test.js`. The e2e drives S1's POST as well, so it can't pass until S1 is done. Fix: add `test/e2e.test.js` to Touch, or move C5 to the slice that finishes the flow. State that C5 depends on S1.\n5. [Nit] C3 and C4 are the same command (`node --test test/*.test.js`) on different slices. That is acceptable as a regression check, but C3 would run `list.test.js` and `e2e.test.js` before S2 exists and fail. Fix: scope C3 to the files that exist at S1, or accept that C3 can't pass until S2 is done.\n6. [Nit] The \"Done when\" line (PLAN.md:9) still says only \"C1 and C2 pass\". It lists neither C5 nor observable outcomes (401, 404, 400, a customer with no orders shows `$0.00`). Fix: list the outcomes and name C5.\n7. [Nit] Round 1 finding 9, the definition of \"order total\", is only partly handled. The plan says the format is USD and `list.test.js` covers a total of 0. It still doesn't say whether cancelled or refunded orders count, and it adds no assumption. Fix: add an Assumption such as \"total is the sum returned by `getOrderTotalsByCustomer`; cancelled orders handled there\". Alternatively, ask the owner. The `Assumptions` section currently holds only \"Notes are plain text\".\n8. [Nit] The down migration `002_notes.down.sql` has no precedent: `migrations/` holds only `001_customers.sql`. The plan also doesn't mention the `customer_id` index requested in round 1 finding 7. Fix: add `CREATE INDEX` on `notes(customer_id)` to the decision. Confirm the migration runner supports `.down.sql`.\n\nEarlier findings: 1 to 7 fixed in substance. 1 and 2 are covered by concrete tests (`notes.test.js`, `list.test.js`), subject to finding 3 above. 8 is still open as new finding 6. 9 is still open as finding 7.\n\nNot checked: how migrations are applied (no runner in the repo), whether `package.json` sets `\"type\": \"module\"`, and anything in the Bash-only checks. Bash was denied in this round, so I couldn't re-run `jig lint`; the first run printed `ok`.",
+      "Verdict: fix first\n\nFindings:\n1. [Important] Round 2 finding 1 is still open: the plan doesn't say whether `handle` is sync or async. `test/notes.test.js:5-8` reads `.status` and `.body` straight off `handle('POST', ...)`, so POST must be sync. `test/e2e.test.js:4` awaits `handle('GET', ...)`. `listCustomers(db)` is async (`test/list.test.js:4`), and so is every `db` method (`src/db.js:1`). POST therefore can't check that a customer exists (404) or insert a note without an async call. Evidence: those files, plus no Decision in PLAN.md:11-16 on the contract. Fix: add a Decision that makes `handle` async everywhere and updates `notes.test.js` to `await`, or that fixes a sync db seam.\n2. [Important] Round 2 finding 2 is still open: `src/db.js` is in no slice's Touch (PLAN.md:31, 36). S1 needs a customer lookup and a note insert. The db has `getCustomers` and no `getCustomer`, `insertNote` or notes store (`src/db.js:1`). The plan doesn't say whether the db is in-memory or SQL-backed. Fix: add `src/db.js` to S1's Touch, name the new functions, and state how `002_notes.sql` gets applied. The repo has no runner.\n3. [Important] Round 2 findings 3 and 4 are still open. `test/e2e.test.js` is in no Touch, and C5 is attached to S2 (PLAN.md:37) without saying it needs S1's POST. The test POSTs to customer 1, but `db.getCustomers()` returns `[]`, so the 201 can't happen without seeding. `r.body.every(...)` also passes on an empty array. Fix: add `test/e2e.test.js` to S2's Touch. Seed customers and orders through a db seam. Assert a non-empty list with a known total such as `$1,234.56`, and assert the posted note can be read back. State that the e2e runs in-process.\n4. [Important] The plan has no definitions for C1 to C5, and the Done-when line (PLAN.md:9) names only C1 and C2. S2 cites C5 and S1 cites C3, but nothing in the plan shows what they run. I couldn't check `checks.json` this round. If C3 is `node --test test/*.test.js`, it would fail at S1 because `list.test.js` and `e2e.test.js` need S2. Fix: scope C3 to the notes tests, and list C5 and the observable outcomes in Done-when (401, 404, 400, and `$0.00` for a customer with no orders).\n5. [Nit] Round 2 finding 7 is still open. The plan doesn't say what counts toward \"order total\", such as cancelled or refunded orders. Assumptions (PLAN.md:25) holds only \"Notes are plain text\". Fix: add an Assumption that the total is whatever `getOrderTotalsByCustomer` returns.\n6. [Nit] Round 2 finding 8 is still open. The plan doesn't mention a `notes(customer_id)` index, and `.down.sql` has no precedent in `migrations/`. Fix: add the index to the Decision and confirm the runner supports `.down.sql`.\n7. [Nit] There is a new test gap: `notes.test.js` has no check that a stored note can be read back. It also doesn't cover a whitespace-only body or a non-numeric `:id`. Fix: add those cases.\n\nEarlier findings: Round 2 findings 1, 2, 3, 4, 5, 6, 7 and 8 are all still open, as items 1, 2, 3, 3, 4, 4, 5 and 6 above. `git diff 3eee14e` shows no change to the plan since the last review. Round 3 is reached with Important findings still open. If the next round still has them, return `rethink`.\n\nNot checked: the contents of `checks.json` (C1 to C5 definitions), and how migrations are applied (no runner in the repo)."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Read",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": true
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": [
+      "fix first",
+      "fix first",
+      "fix first"
+    ],
+    "costUsd": 1.1627535999999998,
+    "texts": [
+      "Here is the jig-reviewer's output, verbatim:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] C1 can't fail. Its command is `node -e \"process.exit(0)\"`, which exits 0 whatever the code does, so S1 can be closed with no feature built. Evidence: `docs/plans/notes/checks.json:8`. Fix: replace it with a real check. It should POST a note with a valid token and expect a 2xx, check that the note is stored, and check that a request with no token gets 401.\n\n2. [Important] C2 can't tell whether S2 works. It runs `node --test test/*.test.js`, which is the whole existing suite. `test/app.test.js` doesn't cover totals, and S2 doesn't add a test file to its Touch list. The check would pass with the feature missing. Evidence: `checks.json:16`, and S2 `Touch:` (`src/list.js`, `src/lib/money.js`). Fix: add a test file to S2 that asserts the totals shown for known orders, including a customer with no orders. Also add one `e2e` check that starts the app and drives POST note then GET /customers. The request is user-visible behaviour, and both checks are `acceptance` kind only.\n\n3. [Important] The plan duplicates an existing helper. It adds `src/lib/money.js` with `formatMoney(cents)`, but `src/lib/format.js:1` already exports `formatCurrency(cents)`, which does the same thing for USD. Fix: drop the money.js file and decision, and import `formatCurrency` instead.\n\n4. [Important] The list is built with an N+1 query. The plan calls `db.getOrdersForCustomer(id)` once per customer in a loop, and gives \"simplest code\" as the reason. `src/db.js` already has `getOrderTotalsByCustomer()`, which returns a Map of totals in one call. Fix: use that and change the Decision. Totals for customers with no orders should default to 0.\n\n5. [Important] Authorization on the new route is not in the plan. The outcome says \"signed-in users\", but S1 never mentions `requireAuth` (`src/app.js:2`) or the 401 case. The plan also doesn't say how the note author is recorded, or how the id is validated (a nonexistent customer should get 404). The new list route in S2 also needs the auth check. Fix: put 401, 404 and bad-input behaviour in the S1 and S2 goals and in the checks.\n\n6. [Important] One-way doors are unmarked, and the Decision for them is thin. A `notes` column on the customers table can hold only one note, but the outcome says users \"add notes\". A single column means each new note overwrites or concatenates onto the last one. It also gives no author or timestamp. Migration `002_notes.sql` is a schema change. Fix: use a `customer_notes` table (customer_id, author, body, created_at) with an index on customer_id. Flag it as a one-way door for the owner. Also decide the maximum note length, since the plan assumes only \"plain text\". Notes must be escaped when rendered.\n\n7. [Nit] Slice structure. S2's `src/list.js` is new, but nothing wires it to a route in `src/app.js` or says what it returns, and `src/app.js` isn't in S2's Touch list. Fix: add the route wiring to S2's Touch list, or state in the plan that `list.js` is only a helper.\n\n8. [Nit] The `Done when` line only says \"C1 and C2 pass\". That is circular, given the weak checks in 1 and 2. Fix: state observable behaviour there.\n\nNot checked: the content of `test/app.test.js` and `package.json`. I didn't open them, but the C2 finding rests on S2 adding no test file, which is clear from the plan.\n```\n\nI didn't edit any files.",
+      "Here is the jig-reviewer's round 2 output, verbatim:\n\n```\nVerdict: fix first\n\nThe plan changed between dba26ad and d9b1da8. `jig lint` reports ok.\n\nFindings:\n1. [Important] C5, the only `e2e` check, doesn't start the app. It imports `handle` from `src/app.js` and calls it in-process. It never starts a server or process, so it is a unit test labelled e2e. It also doesn't check that the posted note is stored, and it never asks for `GET /customers` without a token to return 401, which S2's goal needs because the list route must be authenticated. Evidence: `test/e2e.test.js:3-4`, `checks.json` C5. Fix: either start the app or CLI entrypoint and drive it over its real interface, or change C5's kind to `acceptance` and say plainly that no real-system check exists. Add the 401 case for the list route, and assert that the note is stored.\n\n2. [Important] The \"Done when\" line is unchanged and still circular: \"C1 and C2 pass under `jig verify`\". It should state observable behaviour: a signed-in POST returns 201 and stores the note, no token gives 401, and the list shows currency totals, including $0.00 for a customer with no orders. It should also list C3 to C5. C4 and C3 are the same command, so they add nothing as separate checks. Evidence: `PLAN.md` Outcome. Fix: rewrite \"Done when\" with the behaviour, and merge C3 and C4 or drop one.\n\n3. [Nit] `handle` has a different signature and sync/async behaviour in the tests than in the code. The tests call `handle(method, path, headers, { body })`, but the current `handle` takes only three parameters, and it is synchronous. `test/e2e.test.js` awaits the GET result but not the POST result, while `listCustomers` is async. S2 needs `handle` to await the db call, which makes the whole function async. The tests then break, because `notes.test.js` reads `.status` and `.body` without await, and so does the POST in `e2e.test.js`. The slices don't say which way `handle` goes. Evidence: `src/app.js:3`, `test/notes.test.js:5-8`, `test/e2e.test.js:4`. Fix: decide in the plan whether `handle` is async. Make S1's tests and S2's tests agree, and make S1 and S2 await consistently.\n\n4. [Nit] `test/notes.test.js` doesn't test that the note is persisted. It only checks the returned body, and a stub that echoes the input would pass. Fix: add a read-back assertion, for example from the db or a notes list. Also test that a non-numeric customer id returns 404 or 400.\n\nEarlier findings:\n- 1 (C1 can't fail): fixed. C1 now runs `test/notes.test.js`, which covers 401, 201 with author, 404, and 400, though see finding 4.\n- 2 (C2 can't tell, no e2e): the unit part is fixed, since `list.test.js` asserts totals including $0.00. The e2e part is still open, see my finding 1.\n- 3 (duplicate helper): fixed. The plan now reuses `formatCurrency`.\n- 4 (N+1 query): fixed. The plan uses one `getOrderTotalsByCustomer()` call, and a test asserts it.\n- 5 (authorization): fixed in S1. S2's list-route auth is still unchecked, see my finding 1.\n- 6 (one-way door): fixed. There is a `notes` table, the one-way door is marked with the owner's decision, there is a 2,000-character limit, and escaping is decided.\n- 7 (S2 wiring): fixed. `src/app.js` is in S2's Touch list.\n- 8 (circular Done when): still open, see my finding 2.\n\nNot checked: whether the migrations are correct, because they don't exist yet. I also didn't run the tests.\n```\n\nThe reviewer found the plan had changed since round 1. The last reviewed commit was dba26ad, and the \"fix round 1\" commit d9b1da8 is newer. I edited no files.",
+      "Here is the jig-reviewer's round 3 output, verbatim:\n\n```\nNothing changed since d9b1da8. `git diff d9b1da8 HEAD` is empty, and `jig lint` reports ok. I didn't re-read `checks.json` or the test files, so I'm assuming they match the round 2 findings, since the git diff shows no change to them.\n\nVerdict: fix first\n\nFindings:\nNone new. All four round 2 findings are still open.\n\nEarlier findings:\n- Round 2 finding 1 (C5 isn't a real e2e check, no 401 case on the list route, no check that the note is stored): still open: 1. S2 still lists C5, and the plan hasn't changed.\n- Round 2 finding 2 (\"Done when\" is circular, C3 and C4 duplicate each other): still open: 2. `docs/plans/notes/PLAN.md:9` still reads \"C1 and C2 pass under `jig verify`\". S1 still lists C3 and S2 still lists C4, so the duplicate checks remain.\n- Round 2 finding 3 (`handle` has a different signature and sync/async behaviour in the tests than in the code): still open: 3. The plan still doesn't say whether `handle` becomes async.\n- Round 2 finding 4 (`test/notes.test.js` doesn't check that the note is stored or that a non-numeric id is rejected): still open: 4. The S1 goal doesn't mention a read-back or non-numeric id check.\n\nRound 1 findings:\n- Findings 1, 3, 4, 6 and 7 stay fixed.\n- Findings 2 and 5 stay partly open, covered by round 2 findings 1 and 2.\n- Finding 8 is still open, covered by round 2 finding 2.\n\nThis is round 3. The round 2 Important findings are unfixed because nothing was committed after d9b1da8. I'm not returning `rethink` yet, because the plan itself hasn't been revised since round 2 and so hasn't failed a third time. If the next round still has these open, I'll return `rethink`.\n\nNot checked: `checks.json` and the test files. I didn't re-read them, because the git diff shows no change to them since round 2.\n```\n\nNothing was edited. The plan is unchanged since round 2, so this round only confirmed that all four round 2 findings are still open. The two Important ones are C5 and the circular \"Done when\" line. The reviewer didn't re-read `checks.json` or the tests this round. It relied on the empty diff."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Read",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "fresh",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": true
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": [
+      "fix first",
+      "fix first",
+      "rethink"
+    ],
+    "costUsd": 1.3972009,
+    "texts": [
+      "Here is the jig-reviewer's output, verbatim:\n\nVerdict: fix first\n\nFindings:\n1. [Important] C1 can't fail. Its command is `node -e \"process.exit(0)\"`, which exits 0 whatever S1 does. Evidence: `docs/plans/notes/checks.json` C1 `cmd`. Fix: replace it with a real check. The check should POST a note as an authenticated user and expect success, POST unauthenticated and expect 401, and then read the note back. Add an `e2e` check that runs the real app.\n\n2. [Important] C2 can't fail. It runs `node --test test/*.test.js`, and the only test is the empty `test('x', () => {})`. It would pass with S2 missing or stubbed. Evidence: `test/app.test.js`, `checks.json` C2. Fix: add a test that asserts the list output shows the right totals, including a customer with no orders. Run it from C2. Put the test file in S2's `Touch:`.\n\n3. [Important] The Decisions section has the list fetch each customer's orders in a loop with `db.getOrdersForCustomer(id)`. That is an N+1 query pattern. `db.getOrderTotalsByCustomer()` already returns the totals in one call. Evidence: `src/db.js`, and the plan's third Decision. Fix: use `getOrderTotalsByCustomer` and drop the loop decision.\n\n4. [Important] The plan skips authorization on the new route. S1 adds `POST /customers/:id/notes`, but the plan never says it must call `requireAuth` and return 401. The existing `handle` only checks auth on `GET /customers`. The request says \"signed-in users\". Nothing says what happens when the customer doesn't exist (404). Nothing says how to validate or limit the note body. Fix: add these to S1's goal and make C1 check them. Add `docs/plans/notes/PLAN.md` or the test file to the `Touch:` list if needed.\n\n5. [Important] Duplicate helper. S2 adds `src/lib/money.js` with `formatMoney(cents)`. `src/lib/format.js` already has `formatCurrency(cents)` with the same behaviour. Evidence: `src/lib/format.js:1`. Fix: reuse `formatCurrency` and drop `money.js` from S2.\n\n6. [Important] The plan doesn't flag the migration as a one-way door. S1 adds `migrations/002_notes.sql` but doesn't say whether it is a column on `customers` or a separate table. Notes are append-only (\"add notes\"), so a single `notes` column fits badly. It would hold one value, and a second note would overwrite the first. Fix: use a `notes(id, customer_id, body, created_at, author)` table with an index on `customer_id`. Mark the schema change as a one-way door for the owner to confirm.\n\n7. [Nit] S2 touches `src/list.js (new)`, but the existing `GET /customers` handler is in `src/app.js` and returns no body. S2 doesn't say how the list gets wired into it. Fix: add `src/app.js` to S2's `Touch:`.\n\n8. [Nit] Slice S1 is missing a vertical check. Nothing runs the real system (kind `e2e`) for either slice, even though both change user-visible behaviour. Fix: add at least one `e2e` check that drives the app's flow. Item 1 above covers part of this.\n\nNot checked: whether `jig verify` runs cleanly. Lint on the plan passed.\n\nI didn't edit any files.",
+      "Here is the jig-reviewer's round 2 output, verbatim:\n\n```\nVerdict: fix first\n\nFindings:\n1. [Important] The e2e check C5 can't fail on a missing or wrong total. It passes with S2 absent or stubbed. `db.getCustomers()` returns `[]` (`src/db.js`), so `r.body.every(...)` in `test/e2e.test.js` is vacuously true, and a customer-less list passes. The test also never reads the note back and never checks 401 on an unauthenticated POST. It calls `handle()` in-process rather than starting the app. Fix: seed at least one customer and one order, assert a specific total such as `$1,234.56` and a `$0.00` row, read the note back, and add the unauthenticated 401 case. Use a real server or CLI process if \"e2e\" is meant literally.\n2. [Important] The tests assume fixtures the plan never provides. `test/notes.test.js` expects `POST /customers/1/notes` to return 201 and `/customers/999/notes` to return 404. But `db.getCustomers()` is `[]`, so customer 1 doesn't exist and the 201 case would return 404. Nothing in the plan says how customer 1 or note storage gets seeded or injected. There is also no `getCustomer(id)`, `addNote`, or notes read function in `db`. Fix: add a `db` seam, either injected or an in-memory fake, to S1's goal. Add `src/db.js` to S1's `Touch:`, since the plan needs new db methods and `src/db.js` isn't in any slice's `Touch:`.\n3. [Important] The tests mix sync and async `handle`. `notes.test.js` reads `handle(...).status` synchronously. `e2e.test.js` does `await handle('GET', ...)`, because listing needs the async db. If `handle` becomes async for S2, the S1 tests fail on a Promise. If it stays sync, the list can't call the async `listCustomers(db)`. Also, `handle` currently takes three parameters (method, path, headers), and the tests pass a body as the fourth. Fix: decide that `handle` is async and `await` it in every test. Say in the plan that the signature gains a `body` parameter.\n4. [Nit] C5 (kind `e2e`) belongs to S2, but its test covers the S1 note flow too. S1 has no e2e check. Fix: attach C5 to both slices, or split it.\n5. [Nit] The notes table decision omits the index on `customer_id` that I asked for in round 1, and the plan says nothing about migration run order. The down migration is a good addition. Fix: state \"index on `notes(customer_id)`\" in the decision.\n6. [Nit] C3 and C4 are identical `node --test test/*.test.js` commands. Fix: keep one, or leave C3 and C4 as is if you want one regression check per slice.\n\nEarlier findings:\n- 1: partly fixed. C1 is now a real test, but the e2e gap remains (see finding 1 above).\n- 2: fixed. `test/list.test.js` asserts totals, including a customer with a zero total, and C2 runs it.\n- 3: fixed. The plan uses `getOrderTotalsByCustomer`, and the test asserts one totals query and zero per-customer queries.\n- 4: fixed in the plan (401, 404 and 400 cases, and the limit). The tests need the fixtures from finding 2 above.\n- 5: fixed. The plan reuses `formatCurrency`, and `money.js` is dropped.\n- 6: fixed except for the index (see finding 5 above). The one-way door is marked and the owner has decided it.\n- 7: fixed. `src/app.js` is in S2's `Touch:`.\n- 8: partly fixed. C5 was added, but it is weak (see findings 1 and 4 above).\n\nNot checked: whether `jig verify` runs. Lint passes. The new tests would fail today, as expected for a draft, but I didn't run them.\n```\n\nI didn't edit any files.",
+      "Round 3 output from the jig-reviewer, verbatim:\n\n```\nVerdict: rethink\n\nFindings:\n1. [Important] Round 2 findings 1, 2 and 3 are still open, and the plan hasn't changed to address them. `git diff eae8c3b HEAD --stat` shows no changes to the plan, the tests or `src`. Evidence for each:\n   - **Weak e2e check.** `test/e2e.test.js` asserts `r.body.every(...)` over `db.getCustomers()`, which returns `[]` in `src/db.js`. The assertion is vacuously true, so C5 passes with S2 absent. The test never reads the note back and never checks 401 on an unauthenticated POST. It also calls `handle()` in-process, so it doesn't start the app.\n   - **Missing fixtures.** `test/notes.test.js` expects 201 for customer 1 and 404 for customer 999. `src/db.js` has no customers, no `getCustomer`, and no note write or read methods. `src/db.js` is in no slice's `Touch:`, and the plan has no seam (an injected or in-memory db).\n   - **Sync/async mismatch.** `notes.test.js` reads `handle(...).status` synchronously, while `e2e.test.js` uses `await handle(...)`. `handle` currently takes `(method, path, headers)`, and the tests pass a fourth `body` argument. The plan doesn't say whether `handle` becomes async or that it gains a `body` parameter.\n   Fix: make three plan changes.\n   - In S1's goal, add a db seam with `getCustomer`, `addNote` and a notes read function. Add `src/db.js` to `Touch:` for S1 and S2, and say how customer 1 is seeded.\n   - State that `handle` is async, takes `(method, path, headers, body)`, and that every test awaits it.\n   - Rewrite C5 to seed customers and orders, assert `$1,234.56` and `$0.00`, read the note back, and cover the unauthenticated 401. Use a real server process if \"e2e\" is meant literally.\n2. [Nit] Still open: C5 is attached only to S2, but it covers the S1 note flow. S1 has no e2e check. Also still open: the `notes(customer_id)` index is missing from the decision. C3 and C4 are identical commands.\n\nEarlier findings: Round 2 finding 1, 2 and 3 are still open (see 1 above). Findings 4, 5 and 6 are still open as nits (see 2 above).\n\nWhy rethink: this is round 3 and the Important items are unchanged. The rounds \"fix round 1\" and \"fix round 2\" (b292fad) left the plan and tests as they were. Sit down with the owner and decide the handler and db shape first: sync or async `handle`, how the db is injected, and how fixtures are seeded. Then write the plan and tests against that shape, instead of patching the checks again.\n\nNot checked: I didn't run the tests or `jig verify`. `jig lint` reports ok.\n```\n\nI didn't edit any files."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      },
+      {
+        "tools": [
+          "Agent",
+          "Bash",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 2,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.2710498000000001,
+    "texts": [
+      "I wrote the plan to `docs/plans/json/PLAN.md` exactly as given and edited no other files.\n\nVerdict: fix first\n\nFindings:\n1. [Important] The plan never says how the output is chosen from the flag. `src/cli.js:4` calls `parseArgs({ options: {} })`, so it declares no options. I ran `node src/cli.js --json` and it throws `ERR_PARSE_ARGS_UNKNOWN_OPTION` (exit 1). The Decision \"Parse the flag with the existing `parseArgs` call\" is right, but S1 should say to declare `json: { type: 'boolean' }` and branch on `values.json`. That is also where the output changes, which the plan currently describes only as \"only change how it prints\".\n2. [Important] \"Same totals as `report`\" can't be checked as written. `src/cli.js:5` calls `totals([])`, so the command always reports an empty list (count 0, sum 0). There is no input path. The plan doesn't state this, so C1 can only check `{\"count\":0,\"sum\":0}`. Either say in the Outcome or an Assumption that this is the only observable value, or add a rows input to Out of scope or to the slice.\n3. [Nit] \"Keys are the text output's labels in camelCase\" is vacuous. The labels are `count` and `sum`, which are already lowercase. It's also redundant with the Goal's `{\"count\":N,\"sum\":S}`. Say the keys are `count` and `sum`.\n4. [Nit] The Goal says \"exits 0\", but the plan doesn't say what an unknown flag should do. That is existing behavior, so it's fine to leave out, but \"`report` is unchanged\" could be pinned to a C2 assertion.\n5. [Nit] The slice's Touch list says `test/json.test.js (new)`. That matches `protects` in `checks.json` C1, and C1 and C2 both exist, so the checks line up. The existing `test/report.test.js` is an empty placeholder, so C2 would pass even if the text output regressed. The \"unchanged\" claim therefore has no real regression check unless `json.test.js` also asserts the text output.\n6. [Pre-existing] `package.json` names the bin `report` but the package is `rep`. The `report` command only works via `node src/cli.js` or a link. A C1 test must spawn `node src/cli.js`, and the plan could say so.\n\nI didn't run `jig verify`. The `jig` binary is installed, but the checks can't pass until S1 is built."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Bash",
+          "Write",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 0,
+      "verdict": "ready"
+    },
+    "rounds": null,
+    "costUsd": 0.1559839999999999,
+    "texts": [
+      "I wrote the plan to `docs/plans/json/PLAN.md` exactly as given. I then checked it against `src/cli.js`, `src/report.js`, `test/report.test.js` and `docs/plans/json/checks.json`.\n\nVerdict: ready\n\nFindings:\n1. [Nit] The plan says to parse the flag with \"the existing `parseArgs` call\", but that call is `parseArgs({ options: {} })` (`src/cli.js:3`). It declares no options, and `parseArgs` throws on an unknown `--json` by default. S1 therefore has to add `options: { json: { type: 'boolean' } }`. This is inside S1's `src/cli.js` touch, so the slice stays sound. The Decision could say \"extend\" instead of \"existing\".\n2. [Nit] `src/cli.js` calls `totals([])` on hard-coded empty rows, so the output today is `count 0` and `sum 0`. The JSON would be `{\"count\":0,\"sum\":0}`. That is consistent with \"same totals as `report`\". It does mean C1 can only check the empty case, unless the plan adds a way to feed rows, which it doesn't.\n3. [Nit] The Assumptions line is accurate. The text labels `count` and `sum` are already single lowercase words, so camelCase gives `count` and `sum`, matching the Goal's `{\"count\":N,\"sum\":S}`.\n4. [Nit] The checks match the plan. `checks.json` defines C1 (`node --test test/json.test.js`, protecting that file) and C2 (`node --test test/*.test.js`), both on S1. `test/json.test.js` doesn't exist yet and the plan lists it as `(new)`. `test/report.test.js` is a placeholder, so C2's regression coverage of \"`report` is unchanged\" is weak. The new test should also assert the text output.\n\nNo Important findings."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Bash",
+          "Write"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "clean-flag",
+    "set": "control",
+    "grade": {
+      "valid": true,
+      "found": [],
+      "recall": null,
+      "falsePositives": 9,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.1986306,
+    "texts": [
+      "I wrote the plan to `docs/plans/json/PLAN.md` exactly as given, and I edited no other files. I did not run any code.\n\nVerdict: fix first\n\nFindings:\n1. [Important] The plan's wording about `totals(rows)` contradicts the code. `src/cli.js` calls `totals([])` with a hardcoded empty array, so `report` never reads any real rows and always prints `count 0` and `sum 0`. `--json` would print `{\"count\":0,\"sum\":0}` too.\n   - The Decision says \"the numbers must match the text output exactly\", but the plan never says where rows come from.\n   - It should say either that matching the placeholder is deliberate, or that row input is a separate concern, and add it to Out of scope or Questions. \"Questions: None\" hides this.\n2. [Important] The `parseArgs` call is `parseArgs({ options: {} })`, with no options declared. Passing `--json` today throws `ERR_PARSE_ARGS_UNKNOWN_OPTION`, because strict mode is the default.\n   - S1 needs to say it adds `options: { json: { type: 'boolean' } }`. The Decision only says to reuse the call.\n   - The `values` it already returns is currently unused, so the change is small.\n3. [Nit] The Assumption \"Keys are the text output's labels in camelCase\" is vacuous. The labels are `count` and `sum`, which are already lowercase, so camelCase changes nothing. The Goal's `{\"count\":N,\"sum\":S}` is the real spec, and the assumption can be dropped.\n4. [Nit] The plan's \"Done when\" names C1 and C2, and both exist in `docs/plans/json/checks.json`.\n   - C1 runs `node --test test/json.test.js`, and its `protects` list matches the new test file named in Touch.\n   - C2 runs the whole suite. The only existing test, `test/report.test.js`, is an empty placeholder (`test('x', () => {})`).\n   - So C2 will not catch a regression in the text output. The plan claims \"`report` is unchanged\", and `json.test.js` should also assert the plain text output.\n5. [Nit] The plan doesn't say how `json.test.js` will run the CLI. It would need to spawn `node src/cli.js --json`. Importing `cli.js` would execute it on load, because the file has no exported main function."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Bash",
+          "Write",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": true
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.4337998999999999,
+    "texts": [
+      "I wrote the plan to `docs/plans/invoices/PLAN.md` exactly as given and changed no other files.\n\nVerdict: fix first\n\nFindings:\n1. [Important] The sync test can't pass with the async DB call. `test/export.test.js:5` calls `handle(...)` and reads `r.status` and `r.type` directly, with no `await`. `db.allInvoices` is `async` (`src/db.js`), and the plan's decision is to call it in the handler. That makes `handle` return a Promise, so `r.status` is `undefined` and C1 fails. The 403 test also needs `handle` to stay synchronous. Either the plan says how to reconcile this (for example, change the test to `await`, which C1 `protects`, so that needs owner sign-off), or it should use a non-async path. The plan is silent on this.\n2. [Important] \"Every invoice for the account in the path\" doesn't match the route. The path is `/invoices/export` and has no account in it. The account comes from the session (`requireAdmin` returns `{account:'a1'}`). The Goal should say the session's account. Otherwise someone could implement an account path parameter, which would invite cross-account access.\n3. [Important] `src/export.js` and its `toCsvRow` duplicate `src/lib/csv.js`'s existing `toCsv(rows)`. That function already quotes and escapes values. The plan doesn't mention it. Reuse it, and drop the new helper and the new file unless there's a reason not to. If you keep the header row, build it as an array in `toCsv`'s input.\n4. [Important] The `csv-stringify-fast` dependency is unjustified. `package.json` has no dependencies and no install step. A new package adds supply-chain risk to save a line or two, when `toCsv` already covers the header row. Remove it.\n5. [Important] The PDF export is scope creep. The request is CSV only, the Outcome says CSV only, and no slice or check covers `/invoices/export.pdf`. It needs a PDF library, and \"little extra work\" isn't true. Remove it, or move it to Out of scope.\n6. [Important] Loading all invoices into memory conflicts with the existing paging API. `db.invoicePage(accountId, cursor)` exists, and the 50k-invoice assumption is unchecked and unowned. Loading everything is risky at that size. Either use `invoicePage` to stream or page through, or record the limit as a decision with an owner.\n7. [Important] `toCsv` doesn't guard against CSV formula injection. Invoice fields that start with `=`, `+`, `-` or `@` run as formulas when an admin opens the file in Excel. The plan covers quoting only. It should add neutralizing those values, plus a test.\n8. [Nit] The checks are thin. C1 only covers the 403 and a 200 with a content type. Nothing tests the CSV body, escaping, a header row, or that only the admin's account's data is returned. `jig verify` also can't find the plan until it's passed `--plan`. I couldn't run the full verify, and the C1/C2 results above come from running the tests directly (C1 currently fails on the 404).\n9. [Nit] The Questions section says \"None\", but findings 1 and 6 are open design questions. The Assumptions section has one item, with no check that backs it.\n10. [Pre-existing] `handle` in `src/app.js` returns no `type`. The route has to add `type: 'text/csv'` and a body field. Nothing defines the response shape yet. `test/app.test.js` is a placeholder."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Bash",
+          "Write",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": true
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.4196666000000002,
+    "texts": [
+      "Verdict: fix first\n\nI wrote the plan to `docs/plans/invoices/PLAN.md` exactly as given and edited nothing else. I read every tracked file in the repo to review it.\n\nFindings:\n1. [Important] The plan builds a CSV helper the repo already has. `src/lib/csv.js` exports `toCsv(rows)`, which quotes every value and doubles embedded quotes. Decision 1 adds a new `toCsvRow` in `src/export.js` that does the same job, and the S1 \"Touch\" list leaves out `src/lib/csv.js`. Reuse `toCsv` and drop the new helper.\n2. [Important] The plan adds a dependency the repo doesn't need. `package.json` declares no dependencies, and `toCsv` already builds a header row, since it takes an array of rows. `csv-stringify-fast` adds a supply-chain dependency to save a few lines. Remove Decision 3.\n3. [Important] The PDF route is scope creep. The request is CSV only. Decision 4 adds `GET /invoices/export.pdf`, which has no check, no slice and no \"Touch\" entry, and it would need a PDF library. The plan also says \"little extra work\" without any basis. Remove it, or list it under \"Out of scope\".\n4. [Important] The goal says \"every invoice for the account in the path\", but the route has no account in its path. The only account source is the session: `requireAdmin` in `src/auth.js` returns `{account:'a1', ...}`. The plan never says to take `accountId` from `requireAdmin(headers).account`. If someone follows the goal literally, they could read the account from the URL or a query parameter, and that would leak invoices across accounts. State that the account comes from the admin session.\n5. [Important] The plan never mentions the admin check. `test/export.test.js` expects `handle('GET','/invoices/export')` to return 403 with no auth header. The plan has no decision or step for `requireAdmin`, even though admin-only access is the point of the request.\n6. [Important] The plan doesn't deal with the sync/async mismatch, and that would make C1 fail. `handle` in `src/app.js` is synchronous, and `test/export.test.js` reads `r.status` and `r.type` without `await`. Both `db.allInvoices` and `db.invoicePage` in `src/db.js` are `async`. Calling `await db.allInvoices` makes `handle` return a Promise, so `r.status` is `undefined` and the test fails. The response also needs a `type: 'text/csv…'` field, which the plan doesn't mention. Either the plan has to change the test and its callers (C1 protects `test/export.test.js`, so it can't be edited quietly), or it has to say how a sync handler gets the data. Raise this under \"Questions\", which currently says \"None\".\n7. [Nit] Load-all-in-memory is justified only by \"simplest code\". `db.invoicePage(accountId, cursor)` already exists for paging. The 50k-invoice assumption is unverified and not tied to any check. Also, `allInvoices` is currently a stub that returns `[]`, so C1 can't show that real rows are exported. Note this, or add a check that uses seeded rows.\n8. [Nit] `toCsv` doesn't guard against spreadsheet formula injection. Invoice fields that start with `=`, `+`, `-` or `@` could run when an admin opens the file in Excel. This is worth a decision or a line under \"Out of scope\".\n9. [Pre-existing] `test/app.test.js` is an empty placeholder (`test('x', () => {})`). C2 therefore adds almost no regression coverage for `GET /invoices`."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Write",
+          "Bash",
+          "Bash"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "invoices",
+    "set": "test",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "duplicates toCsv",
+          "hit": true
+        },
+        {
+          "label": "whole result set in memory",
+          "hit": true
+        },
+        {
+          "label": "new dependency not a one-way door",
+          "hit": true
+        },
+        {
+          "label": "PDF export not requested",
+          "hit": true
+        },
+        {
+          "label": "account from the path, no admin check",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.44384720000000044,
+    "texts": [
+      "Verdict: fix first\n\nI wrote the plan to `docs/plans/invoices/PLAN.md` exactly as given. I then checked it against `src/`, `test/`, `package.json` and `docs/plans/invoices/checks.json`. I edited no other files.\n\nFindings:\n1. [Important] **The plan duplicates an existing helper.** `src/lib/csv.js:1` already exports `toCsv(rows)`, which quotes every value and escapes `\"`. The decision to write a new `toCsvRow` in `src/export.js` adds a second CSV escaper. The plan should reuse `toCsv`, or extend it if it falls short. Then `src/export.js` is probably unnecessary.\n2. [Important] **The goal says \"the account in the path\", but the route has no account in the path.** The route is `/invoices/export`, and the account lives on the session (`src/auth.js:2` returns `{account:'a1', …}`). `requireAdmin` returns that session. If the implementer reads the account from the URL, any admin could export another account's invoices. The goal should say the account comes from the `requireAdmin(headers)` result.\n3. [Important] **The plan doesn't deal with sync versus async.**\n   - `db.allInvoices` is async (`src/db.js:1`).\n   - `handle` is synchronous, and C1 (`test/export.test.js:4-5`) reads `.status` and `.type` straight off its return value.\n   - If the handler awaits the db call, it returns a Promise and both C1 tests fail.\n   - The test also expects a `type` field containing `text/csv`. The plan never mentions it.\n   - The plan needs to say whether `handle` becomes async, which means updating the protected test, or how else to satisfy C1.\n4. [Important] **The `csv-stringify-fast` dependency is unjustified.** `package.json` has no dependencies, and `toCsv` already does the quoting. The package adds supply-chain surface and an install step to save one header line. I also haven't verified that the package exists or is maintained. Drop it.\n5. [Important] **The PDF export is out of scope.** The request asks only for CSV. No slice, check or `Touch` entry covers `/invoices/export.pdf`, so it would ship untested and without a rendering library. Remove it, or list it under Out of scope.\n6. [Important] **Loading everything with `allInvoices` rests on an unverified 50k assumption.** `src/db.js:1` also offers `invoicePage(accountId, cursor)`, a cursor-paginated reader. Building 50k rows in memory per request is a weak default for an admin endpoint. The assumption isn't checked anywhere and isn't tied to any limit. Either use `invoicePage` to stream or chunk the output, or state a cap and the behavior when it is exceeded.\n7. [Nit] **C1 only checks status and content type.** It never checks the body, the header row, quoting, or that admins of other accounts are excluded. The plan relies on checks that can't catch a wrong CSV. Add an acceptance check on the body, with a quoting case, and a cross-account case.\n8. [Nit] **Spreadsheet formula injection isn't handled.** Invoice fields starting with `=`, `+`, `-` or `@` stay live when the CSV is opened in Excel. Decide whether to neutralize them, or record it as out of scope.\n9. [Nit] **The Touch list is incomplete.** `test/export.test.js` already exists and is protected by C1. The plan should say the implementation must satisfy it as written, or call out any needed change.\n10. [Pre-existing] **Several pieces are stubs.** `db.allInvoices` and `invoicePage` return empty results. `test/app.test.js` is a placeholder. Sessions are hard-coded in `src/auth.js`. C1 and C2 can pass with a CSV of zero rows, which is another reason for finding 7."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Write",
+          "Bash",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": true
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 1,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.40749040000000036,
+    "texts": [
+      "Plan written to `docs/plans/notes/PLAN.md` exactly as given. I edited no other files.\n\nVerdict: fix first\n\nFindings:\n1. [Important] The plan's own checks can't prove the outcome. In `docs/plans/notes/checks.json`, C1 is `node -e \"process.exit(0)\"`, which always passes. It never exercises POST /customers/:id/notes. C2 is `node --test test/*.test.js`, and `test/app.test.js` holds only an empty `test('x', () => {})`. Both would pass today with no code written, so \"C1 and C2 pass\" says nothing. Replace C1 with a real test of the route, covering a stored note, the 401 when signed out and an unknown customer. Replace C2 with a test that checks the list totals.\n2. [Important] The S2 loop decision is an N+1 query. `src/db.js` already has `getOrderTotalsByCustomer()`, which returns a Map of totals per customer, so the loop over `db.getOrdersForCustomer(id)` isn't needed. The reason \"simplest code\" is also wrong, because the existing helper is simpler. Use `getOrderTotalsByCustomer()` and drop the loop decision.\n3. [Important] `src/lib/money.js` with `formatMoney(cents)` duplicates `src/lib/format.js`, which already exports `formatCurrency(cents)` with USD formatting. Drop the new file and the Decision, and import `formatCurrency` instead. S2's Touch list shrinks to `src/list.js`.\n4. [Important] The plan has no signed-in requirement for the notes route. The Outcome says signed-in users only. `src/app.js` has `requireAuth(headers)` and `handle(method, path, headers)`, and the existing GET /customers returns 401 without a session. S1 should say the route requires `requireAuth` and returns 401 otherwise, and C1 should check that.\n5. [Important] S2 doesn't say how the list gets to the user. `src/app.js` GET /customers returns only `{status: 200}` with no body, and `handle` doesn't use `getCustomers`. The plan creates `src/list.js (new)` but never wires it into `app.js`, and S2's Touch list leaves `app.js` out. Add `src/app.js` to S2 and state what the response body is.\n6. [Important] The schema and persistence are underspecified. `migrations/001_customers.sql` is the only schema file, and `db.js` is a stub with no notes methods and no migration runner. \"A `notes` column on customers\" holds only one note per customer, and a second note would overwrite the first. \"Add notes\" implies several, so a `customer_notes` table (customer_id, body, created_at, author) fits better. The plan also needs a `db.addNote` and a way to read notes, so `src/db.js` belongs in S1's Touch list. Also decide whether the list shows notes, and say what happens on an unknown customer id.\n7. [Nit] Route matching has no pattern. `handle` uses exact-path comparisons, so `/customers/:id/notes` needs a path parser. The plan doesn't mention that, and it also doesn't say where the note body comes from, since `handle` takes no body argument. Say whether `handle` gains a body parameter.\n8. [Nit] The Questions section says \"None\", but the points in findings 4 to 7 are open questions: one note or many, whether notes show in the list, and the money format. The Assumptions section covers only plain text.\n9. [Nit] \"Baseline: HEAD\" is vague. Use the commit hash `a1120e3`.\n10. [Pre-existing] `requireAuth` takes the raw Authorization header as the session key, with a hard-coded `sessions` map. That is fine for a fixture, but it means the author for a note can only be read from `sessions[...]`."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Write",
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": false
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.38208430000000027,
+    "texts": [
+      "I wrote the plan to `docs/plans/notes/PLAN.md` exactly as given. I edited no other files.\n\nVerdict: fix first\n\nFindings:\n1. [Important] **C1 can't verify S1.** In `docs/plans/notes/checks.json`, C1 runs `node -e \"process.exit(0)\"`, which always passes. A broken or missing notes route would still pass, so \"C1 and C2 pass\" proves nothing about notes. C2 runs `node --test test/*.test.js`, and the only test, `test/app.test.js`, is the empty `test('x', () => {})`. C2 therefore passes today, before any S2 work. The plan needs real checks, for example:\n   - a test that POSTs a note and gets it back;\n   - a test that the list shows totals.\n2. [Important] **The list loops over `getOrdersForCustomer(id)`, which is an N+1 query.** `src/db.js` already exposes `getOrderTotalsByCustomer()`, which returns a `Map` of totals per customer. The loop issues one query per customer, and the plan doesn't use the existing aggregate. Use `getOrderTotalsByCustomer()` instead. The \"simplest code\" reason is wrong because the existing call is simpler and scales.\n3. [Important] **`src/lib/money.js` duplicates `src/lib/format.js`.** `format.js` already exports `formatCurrency(cents)`, which formats cents as USD. The new `formatMoney(cents)` does the same job. Drop the new file and reuse `formatCurrency`. S2's Touch list also loses `src/lib/money.js (new)`.\n4. [Important] **The notes route has no auth requirement.** The request says \"signed-in users\", and `src/app.js` has `requireAuth`, which the `GET /customers` handler uses to return 401. S1 never says the POST must return 401 for unauthenticated callers. Nothing in S1 records or checks who wrote a note.\n5. [Important] **There is no place to read or store notes.** `src/db.js` has no write method and no `notes` accessor. `getCustomers` returns `[]`, so nothing reads or stores the `notes` column. S1 touches only `src/app.js` and a migration, so a stored note is never persisted and never read back. The plan needs `src/db.js` in S1's Touch list and a decision on the data access.\n6. [Important] **S2 doesn't wire the list into the app.** `GET /customers` in `src/app.js` returns a bare `{ status: 200 }` with no body. S2 adds `src/list.js (new)` but doesn't touch `src/app.js`, so no route ever renders the list. S2 should touch `src/app.js`, or the plan should say where `list.js` is called from.\n7. [Nit] **A column on `customers` fits a single note poorly.** The `notes` column holds one value per customer, but \"add notes\" implies several notes per customer. A separate `notes` table (customer_id, author, body, created_at) fits better. The Decisions section should settle this. It also touches the \"Editing or deleting notes\" scope line.\n8. [Nit] **Gaps in the plan text.**\n   - Questions says \"None\", yet findings 4, 5 and 7 are open.\n   - The migration `002_notes.sql` has no stated runner. No migration tooling exists in the repo, only `migrations/001_customers.sql`.\n   - `Baseline: HEAD` could name the commit, `a3e201b`.\n9. [Pre-existing] **Auth is a hard-coded token map.** `sessions` in `src/app.js` is `{ 't-alice': 'alice' }`. That's fine for a fixture, but it means \"signed-in\" has no real login flow to build on."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Write"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "arm": "self",
+    "id": "notes",
+    "set": "tuning",
+    "grade": {
+      "valid": true,
+      "found": [
+        {
+          "label": "check that cannot fail (C1)",
+          "hit": true
+        },
+        {
+          "label": "duplicates formatCurrency",
+          "hit": true
+        },
+        {
+          "label": "unmarked one-way door (schema change)",
+          "hit": false
+        },
+        {
+          "label": "new route missing auth",
+          "hit": true
+        },
+        {
+          "label": "query per customer (N+1)",
+          "hit": true
+        }
+      ],
+      "recall": 0.8,
+      "falsePositives": null,
+      "verdict": "fix first"
+    },
+    "rounds": null,
+    "costUsd": 0.4002307000000003,
+    "texts": [
+      "I wrote the plan to `docs/plans/notes/PLAN.md` exactly as given and touched no other files. I checked it against the repo by reading `src/app.js`, `src/db.js`, `src/lib/format.js`, `migrations/001_customers.sql`, `test/app.test.js`, `docs/plans/notes/checks.json` and `package.json`.\n\nVerdict: fix first\n\nFindings:\n1. [Important] The totals decision duplicates an existing helper. The plan adds `src/lib/money.js` with `formatMoney(cents)`, but `src/lib/format.js:1` already exports `formatCurrency(cents)`. That helper is USD with `Intl.NumberFormat` on cents, which is what the plan needs. Drop `money.js` from the Decisions and from S2's Touch list, and reuse `formatCurrency`.\n2. [Important] The list query is an N+1 loop, and `db` already has a batch call. The plan fetches orders per customer with `db.getOrdersForCustomer(id)` in a loop. `src/db.js:1` already has `getOrderTotalsByCustomer()`, which returns a `Map`. Use that with one `getCustomers()` call. The stated reason, \"simplest code\", doesn't hold, because the batch call is simpler and avoids one query per customer.\n3. [Important] C1 and C2 can't verify the outcome. In `docs/plans/notes/checks.json`, C1 is `node -e \"process.exit(0)\"`, which always passes. C2 is `node --test test/*.test.js`, and the only test (`test/app.test.js`) is an empty `test('x', () => {})`. Both would pass with nothing built, so \"C1 and C2 pass\" proves nothing. The checks need real assertions before the code, for example:\n   - C1: an authenticated POST stores a note, and an unauthenticated POST returns 401.\n   - C2: the list output contains the formatted totals.\n4. [Important] The signed-in requirement is missing from S1. The outcome says signed-in users, and `src/app.js:2-4` has `requireAuth`, which `GET /customers` uses to return 401. S1's Goal doesn't say the notes route must call `requireAuth`, and no check covers the unauthenticated case. Add it to the Goal and to C1.\n5. [Important] S2 has no wiring into the app. It creates `src/list.js (new)`, but `GET /customers` in `src/app.js:4` returns only `{status: 200}` with no body. The list never reaches the response unless S2 also touches `src/app.js`. Add `src/app.js` to S2's Touch list, or state that the list is only a module for now. That would not meet \"show each customer's order total in the list\".\n6. [Important] The plan has no way to store a note. `001_customers.sql` defines `customers(id, name)`. The plan adds a single `notes` column, but `db.js` has no write method, and POST `/customers/:id/notes` needs one. A single column also holds one note, which conflicts with \"add notes\" in the plural. Either add a `notes` table (customer_id, body, created_at), or say that a customer has one overwritable note. Also add the new `db` method to S1's Touch list, which currently names only `src/app.js` and the migration. S1 would otherwise edit a file it doesn't list (`src/db.js`).\n7. [Nit] The Questions section says \"None\", but the plural-notes question in finding 6 is open. Also, `handle(method, path, headers = {})` takes no request body, so how a note's text arrives is undefined. List it under Questions or Assumptions.\n8. [Nit] The Done-when line, \"C1 and C2 pass under `jig verify`\", is the only criterion. Once the checks are real, add a plain observable statement, such as \"an unauthenticated POST returns 401 and the list shows a formatted total\".\n9. [Nit] \"Baseline: HEAD\" is a moving reference. Pin it to `5c56a71` so later diffs are reviewed against a fixed point."
+    ],
+    "log": [
+      {
+        "tools": [
+          "Bash",
+          "Write",
+          "Glob",
+          "Bash",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ],
+        "skills": [],
+        "killed": false,
+        "error": false,
+        "stderr": ""
+      }
+    ]
+  }
+]

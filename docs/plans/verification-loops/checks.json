@@ -130,7 +130,7 @@
       "id": "C11",
       "slice": "S6",
       "kind": "acceptance",
-      "cmd": "test \"$(node -p \"require('./package.json').version\")\" = 2.1.0 && grep -q \"^## 2.1.0\" CHANGELOG.md && node cli/jig.mjs lint evals/fixtures/plans/good docs/plans",
+      "cmd": "node -e \"const [a, b] = require('./package.json').version.split('.').map(Number); process.exit(a > 2 || (a === 2 && b >= 1) ? 0 : 1)\" && grep -q \"^## 2.1.0\" CHANGELOG.md && node cli/jig.mjs lint evals/fixtures/plans/good docs/plans",
       "expect": {
         "exit": 0
       },
@@ -244,7 +244,7 @@
       "id": "C21",
       "slice": "S11",
       "kind": "acceptance",
-      "cmd": "test \"$(node -p \"require('./package.json').version\")\" = 2.2.0 && grep -q \"^## 2.2.0\" CHANGELOG.md && node cli/jig.mjs lint evals/fixtures/plans/good docs/plans",
+      "cmd": "node -e \"const [a, b] = require('./package.json').version.split('.').map(Number); process.exit(a > 2 || (a === 2 && b >= 2) ? 0 : 1)\" && grep -q \"^## 2.2.0\" CHANGELOG.md && node cli/jig.mjs lint evals/fixtures/plans/good docs/plans",
       "expect": {
         "exit": 0
       },

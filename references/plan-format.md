@@ -135,7 +135,7 @@ The Log is append-only and dated: `- 2026-11-25: ...` or `- 2026-11-25 14:02: ..
 |---|---|
 | `id` | Letters, digits, `.`, `-` or `_`, starting with a letter. Unique |
 | `slice` | A slice ID from the plan |
-| `kind` | `acceptance`, `regression`, `property`, `mutation`, `perf` or `security` |
+| `kind` | `acceptance`, `regression`, `property`, `mutation`, `perf`, `security`, `e2e` (starts the real app, CLI or service and drives the changed flow) or `differential` (compares old and new output on the same inputs) |
 | `cmd` | Shell command, run from the repo root |
 | `expect.exit` | Expected exit code (default 0) |
 | `expect.stdout` | Optional JavaScript regex the output must match |

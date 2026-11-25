@@ -45,7 +45,7 @@ Then work the way you already do, e.g. *"add CSV export to the reports page"*. A
 5. **Build.** The `build` skill takes one slice per session. It writes the acceptance checks from the spec first, implements, runs `jig verify --record`, logs what changed and commits. If a test and the spec disagree, it stops and tells you rather than editing the test.
 6. **Guard.** The second time the same mistake turns up, the `guard` skill turns it into a test, lint rule, deny rule or hook, not another line of prose.
 
-A `jig-reviewer` agent reviews plans, and each slice's diff, in a fresh context and backs every finding with a file and line or a command.
+A `jig-reviewer` agent reviews plans, and each slice's diff, in a fresh context and backs every finding with a file and line or a command. It tags each finding Important, Nit or Pre-existing, so nobody gets held to a bug they didn't write. On a second pass it only looks at what changed and doesn't repeat itself. If Important findings are still open after three rounds, it says to rethink the approach. If your repo has a `REVIEW.md` of `When: · Check: · Source:` entries, it applies the ones that match the diff, reading the file from the plan's baseline commit so the slice can't edit its own checklist.
 
 ## What a plan looks like
 
@@ -118,15 +118,16 @@ GAP    D2 no ESLint or Biome config, so nothing flags empty catch blocks
 GAP    D3 secret-looking files the agent can read: .env
        Suggested deny rules for .claude/settings.json (review before adding): {"permissions":{"deny":["Read(./.env)", ...]}}
 ok     D4 no repo-level hooks, MCP servers or risky settings
-GAP    D5 no CI configuration found
+GAP    D5 no CI configuration or git hooks found
 GAP    D6 package.json has dependencies but no lockfile
+note   D7 no e2e runner or verify skill; fine for a CLI or library if a check runs the real command
 
 5 item(s) to look at. jig doctor changed nothing.
 ```
 
 Plans go in your repo's existing plans folder (`docs/plans/` or `docs/plan/`), or wherever `.jig.json` says with `{"plansDir": "..."}`.
 
-D4 flags repo settings that can run code or redirect API traffic before you've read them: hooks, `ANTHROPIC_BASE_URL`, `bypassPermissions`, and auto-enabled MCP servers. Those are the settings behind CVE-2025-59536, CVE-2026-21852 and CVE-2026-33068. Once you've read them, `jig doctor --ack` keeps D4 quiet until one of those files changes. Doctor never runs repo code, so where a lint preset or CI status can't be read from the files, it says so rather than guessing.
+D4 flags repo settings that can run code or redirect API traffic before you've read them: hooks, `ANTHROPIC_BASE_URL`, `bypassPermissions`, and auto-enabled MCP servers. Those are the settings behind CVE-2025-59536, CVE-2026-21852 and CVE-2026-33068. Once you've read them, `jig doctor --ack` keeps D4 quiet until one of those files changes. Doctor never runs repo code, so where a lint preset or CI status can't be read from the files, it says so rather than guessing. D7 asks whether there's a way to run the change, not just test it: a `.claude/skills/verify*` skill, an e2e or HTTP test runner, or an e2e script. It's only a gap for an app (a UI or server framework in its dependencies). A CLI or library gets a note.
 
 ## Evidence
 
@@ -157,13 +158,14 @@ jig's two wins were the tasks where the right move was to stop. It asked what "M
 
 **Triggering.** With the SessionStart nudge, all 10 trigger prompts behaved as expected, with or without superpowers installed. Without it, direct requests like "Build a CSV export endpoint" skipped the skill altogether (0 of 3).
 
-**Plans and review.** All three multi-slice plans jig wrote in the eval passed `jig lint`. The reviewer found 5 of 5 seeded plan defects in both runs, against 4 and 5 for a plain review in a fresh context. That's too close to call.
+**Plans and review.** All three multi-slice plans jig wrote in the eval passed `jig lint`. The reviewer found 5 of 5 seeded plan defects in both runs, against 4 and 5 for a plain review in a fresh context. That's too close to call. `evals/reviewer/` now keeps a held-out test case apart from the one we tune on, adds a clean plan as a control, and has a same-session self-review arm. In that run (Sonnet 5.5, 3 runs per cell), plain, fresh and self-review all found 15 of 15 held-out defects, and none flagged the clean plan. The one difference: only the fresh reviewer called an unflagged schema change a one-way door that needs your decision (3 of 3, against 0 of 3 each). So jig's case for a separate reviewer rests on its rubric more than on the fresh context. The details, including what went wrong in the first run, are in [the report](evals/results/REPORT.md).
 
 Re-run any of it (it spends money on your account, about $0.05 to $0.15 a run):
 
 ```bash
 node evals/run.mjs --arms none,jig,planmode,superpowers --runs 3 -j 6
 node evals/triggers/run.mjs --arms jig,jig+superpowers --runs 3
+node evals/reviewer/run.mjs --dry      # one review, prints the cost estimate
 node evals/reviewer/run.mjs --runs 3
 ```
 

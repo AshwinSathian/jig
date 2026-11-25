@@ -66,6 +66,8 @@ What matters most, and why:
   - `mutation` on core logic at the full tier
   - `perf` with a threshold on hot paths
   - `security` on auth and input
+  - `e2e` when the slice changes behaviour a user sees: one check that starts the real app, CLI or service and drives the changed flow, because tests alone miss what running it shows
+  - `differential` when a rewrite must keep behaviour: old and new on the same inputs (see `references/fundamentals.md`)
 - **Risks** say how you'd notice each one and what you'd do instead. Don't score them.
 - **No time estimates.** They are unreliable, and they turn into deadlines. Scope (slices, files, checks) is the measure.
 

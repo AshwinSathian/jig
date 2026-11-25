@@ -157,6 +157,29 @@ export function diagnose(root) {
       else add('D6', 'ok', 'lockfile matches package.json');
     } else if (locks.length) add('D6', 'ok', `lockfile present (${locks.join(', ')})`);
   }
+  // D7: a way to run the change, not only test it. Conservative: a gap only
+  // for a clear app (a UI or server framework in runtime dependencies of a
+  // package with no `bin`) with no sign of e2e; everything else is a note.
+  const projectFile = pkg || isPy || has('go.mod') || has('Cargo.toml');
+  const skillsDir = join(root, '.claude', 'skills');
+  let skill = null;
+  try { skill = readdirSync(skillsDir).find((n) => /^verify/.test(n) && existsSync(join(skillsDir, n, 'SKILL.md'))); } catch { /* no .claude/skills */ }
+  const SKIP = /(^|\/)(examples?|fixtures?|test|tests|__tests__|docs)\//;
+  const pkgs = walk(root, 4, (n, r) => n === 'package.json' && !SKIP.test(r)).map((r) => json(join(root, r))).filter(Boolean);
+  if (projectFile || skill || pkgs.length) {
+    const allDeps = new Set(pkgs.flatMap((p) => Object.keys({ ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) })));
+    const RUNNERS = ['@playwright/test', 'cypress', 'detox', 'webdriverio', '@wdio/cli', 'supertest', 'pactum'];
+    const runner = RUNNERS.find((r) => allDeps.has(r));
+    const script = pkgs.flatMap((p) => Object.entries(p.scripts ?? {})).find(([k, v]) => /(^|:)(e2e|integration)\b/.test(k) || /\b(playwright test|cypress run|detox test|maestro test)\b/.test(v));
+    const config = walk(root, 4, (n, r) => !SKIP.test(r) && /^(playwright|cypress)\.config\.[cm]?[jt]s$|^\.detoxrc|^detox\.config\.|^wdio\.conf\./.test(n))[0] ?? (has('.maestro') ? '.maestro/' : null);
+    const py = isPy ? (read(join(root, 'pyproject.toml')) ?? '') + (read(join(root, 'requirements.txt')) ?? '') : '';
+    const APPS = /^(react|react-dom|next|vue|nuxt|svelte|@sveltejs\/kit|@angular\/core|solid-js|astro|electron|react-native|expo|express|fastify|koa|hono|@nestjs\/core|@remix-run\/node)$/;
+    const isApp = pkgs.some((p) => !p.bin && Object.keys(p.dependencies ?? {}).some((d) => APPS.test(d))) || /\b(django|fastapi|flask)\b/i.test(py);
+    const found = [skill && `.claude/skills/${skill}`, runner && `${runner} installed`, script && `script "${script[0]}"`, config].filter(Boolean);
+    if (found.length) add('D7', 'ok', `a way to run the change end to end: ${found.join(', ')}`);
+    else if (isApp) add('D7', 'gap', 'no way to run the app end to end: no .claude/skills/verify*/SKILL.md, no e2e or HTTP test runner, no e2e script or runner config', 'Add a verify skill that starts the app and drives the changed flow, or an e2e runner. Tests alone miss what running the change shows.');
+    else add('D7', 'info', 'no e2e runner or verify skill; fine for a CLI or library if a check runs the real command', 'Give user-visible slices one check that runs the built CLI or public API, not only unit tests.');
+  }
   return F;
 }
 

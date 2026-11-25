@@ -44,7 +44,7 @@ Run `jig verify --record` for the slice. It runs the slice's checks, prints one 
 - **A check is flaky** (passes and fails on the same code): don't add retries, sleeps or a skip, and don't rerun it until it passes. Find the cause. If you can't, delete the test, log why, and tell the owner (deleting a protected test asks first). `jig lint` warns on a check command that retries or sleeps [J22], and rejects one that can't fail, such as `|| true` [J23].
 - **A check can't run here** (missing service, credentials, hardware): say so in the Log and to the owner. Don't count it as passing.
 
-At the full tier, hand the slice to the `jig-reviewer` agent in diff mode, with the plan path and slice ID. Fix the findings, or log why one doesn't apply.
+At the full tier, hand the slice to the `jig-reviewer` agent in diff mode, with the plan path and slice ID. Fix the Important findings, or log why one doesn't apply. Nits are your call, and Pre-existing findings go to the owner rather than into this slice. After fixing, send it back with the earlier findings and the commit it last reviewed, so it reviews only the new diff. If it returns `rethink` after three rounds, stop and take the approach to the owner.
 
 When the slice changes UI and the loupe skill is available, run it on the affected screens if the slice's done-when calls for it.
 
