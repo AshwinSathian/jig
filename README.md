@@ -1,12 +1,18 @@
 # jig
 
-[![CI](https://github.com/AshwinSathian/jig/actions/workflows/ci.yml/badge.svg)](https://github.com/AshwinSathian/jig/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/AshwinSathian/jig)](LICENSE)
+[![CI](https://github.com/AshwinSathian/jig/actions/workflows/ci.yml/badge.svg)](https://github.com/AshwinSathian/jig/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/jig-plan?label=npm%20jig-plan)](https://www.npmjs.com/package/jig-plan) [![Release](https://img.shields.io/github/v/release/AshwinSathian/jig)](https://github.com/AshwinSathian/jig/releases) [![License: MIT](https://img.shields.io/github/license/AshwinSathian/jig)](LICENSE)
 
 A planning and build harness for Claude Code. jig plans the work at the size it needs, writes the acceptance checks before the code, and uses hooks to catch the ways agent work usually goes wrong: a test edited until it passes, a package that doesn't exist, edits that wander outside the task, and "done" with nothing run.
 
 ```bash
 claude plugin marketplace add AshwinSathian/jig
 claude plugin install jig@jig
+```
+
+Only want the CLI, say for CI or a repo where you don't run Claude Code? It's on npm as `jig-plan`, with no dependencies:
+
+```bash
+npx jig-plan doctor            # or: npm install -g jig-plan, then `jig doctor`
 ```
 
 Then work the way you already do, e.g. *"add CSV export to the reports page"*. A one-line fix gets a four-line plan in chat and carries on. A feature gets a short plan you approve, and then it's built one slice at a time, with the evidence written into the plan. Run `jig doctor` in a repo to see what it'd want fixed first.
@@ -186,7 +192,8 @@ jig works alongside [loupe](https://github.com/AshwinSathian/loupe) and [humaniz
 ## Updating and troubleshooting
 
 ```bash
-claude plugin marketplace update jig && claude plugin update jig@jig   # update
+claude plugin marketplace update jig && claude plugin update jig@jig   # update the plugin
+npm install -g jig-plan@latest                                          # update the standalone CLI, if you use it
 claude plugin details jig                                               # what's installed and its token cost
 claude plugin uninstall jig@jig                                         # remove
 ```
@@ -194,6 +201,7 @@ claude plugin uninstall jig@jig                                         # remove
 - **jig never fires:** check `claude plugin details jig` lists the hooks, and that `JIG_NUDGE` isn't `off`.
 - **An install keeps asking:** that's the pre-bash hook. Approve it once the package checks out, or set `JIG_HOOKS_OFF=pre-bash`.
 - **The agent won't finish:** the Stop hook wants `jig verify` evidence. Run `jig verify --fast --record`, or tell it plainly which check can't run, and why.
+- **Two planning workflows at once:** superpowers' skills also trigger on planning requests. In our trigger eval jig fired first on every planning prompt with both installed, but if you'd rather have one, `claude plugin disable superpowers@claude-plugins-official` turns superpowers off.
 - **A plan fails lint:** `jig lint <path>` prints each rule ID and line. The rules are in [references/plan-format.md](references/plan-format.md).
 
 ## Contributing

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1 (2026-11-25)
+
+- First release published from GitHub Actions with npm trusted publishing and provenance.
+- README: npm and release badges, installing the CLI on its own with `npx jig-plan`, updating it, and what to do when superpowers also triggers.
+- SECURITY: how releases are published and how to check provenance with `npm audit signatures`.
+
 ## 2.0.0 (2026-11-25)
 
 We rebuilt the single-file `plan-engineering` skill (1.0, July 2026) as the jig plugin. Our reasons are in `docs/research/2026-11-adversarial-review.md`.
