@@ -3,7 +3,7 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
@@ -71,6 +71,10 @@ export function sessionStart(input) {
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n\n') } };
 }
 
+// An ask, tagged with the gate that raised it (see observe mode in runHook).
+const ask = (gate, reason) => ({ gate, hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } });
+const block = (gate, reason) => ({ gate, decision: 'block', reason });
+
 // Why an edit to an active plan's checks.json needs a person, or null.
 // Fails closed: a result that doesn't parse or validate asks.
 function frozenChange(checks, input) {
@@ -93,7 +97,25 @@ function sameFile(a, b) {
   } catch { return a === b; } // a file that doesn't exist yet: compare paths
 }
 
+// Rule files: what the agent and the reviewers are told. The Claude Code
+// code-review post treats them, and CI workflows, as paths a person reads.
+const RULE_FILES = ['REVIEW.md', 'CLAUDE.md', '.claude/', '.github/workflows/'];
+
 export function preEdit(input) {
+  const out = guardEdit(input);
+  if (out?.gate) return out;
+  const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
+  if (!file) return out;
+  const root = rootOf(input);
+  const rel = relative(root, isAbsolute(file) ? file : join(root, file));
+  if (!RULE_FILES.some((p) => pathMatches(rel, p))) return out;
+  // Observe-only until the owner decides from the log, so log here and keep
+  // any scope warning.
+  observe(input, 'pre-edit', 'rules', ask('rules', `jig: ${rel} is a rule file (it tells agents or reviewers what to do). A person should read changes to it.`));
+  return out;
+}
+
+function guardEdit(input) {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (!file) return null;
   const root = rootOf(input);
@@ -112,50 +134,26 @@ export function preEdit(input) {
     // be read or validated, we can't tell whether this file is protected.
     const problems = checks.exists ? (checks.error ? [checks.error] : validateChecks(checks.data)) : [];
     if (problems.length) {
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'ask',
-          permissionDecisionReason: `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`,
-        },
-      };
+      return ask('protects', `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`);
     }
     if (sameFile(abs, path)) {
       const after = applyEdit(readFileSync(path, 'utf8'), input.tool_name, input.tool_input ?? {});
       const to = after === null ? null : parsePlan(after).header?.status?.toLowerCase();
       if (after === null || !['approved', 'building'].includes(to)) {
-        return {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'ask',
-            permissionDecisionReason: after === null
+        return ask('freeze', after === null
               ? `jig: this edit to ${rel} can't be applied to the current file, so jig can't tell whether it changes the plan's status. Re-read the file and retry, or approve if the edit is right.`
-              : `jig: this edit sets ${rel} to Status: ${to ?? '(none)'}, which takes it out of the checks freeze and the slice hooks. Changing a plan's status is the owner's call.`,
-          },
-        };
+              : `jig: this edit sets ${rel} to Status: ${to ?? '(none)'}, which takes it out of the checks freeze and the slice hooks. Changing a plan's status is the owner's call.`);
       }
     }
     if (checks.exists && sameFile(abs, checks.path)) {
       const why = frozenChange(checks, input);
       if (why) {
-        return {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'ask',
-            permissionDecisionReason: `jig: this edit to ${rel} ${why}. The plan is approved, so its checks are frozen: add checks or protected paths freely, but loosening one needs the owner's yes and a Log line.`,
-          },
-        };
+        return ask('freeze', `jig: this edit to ${rel} ${why}. The plan is approved, so its checks are frozen: add checks or protected paths freely, but loosening one needs the owner's yes and a Log line.`);
       }
     }
     for (const c of checks.data?.checks ?? []) {
       if ((c.protects ?? []).some((p) => pathMatches(rel, p))) {
-        return {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'ask',
-            permissionDecisionReason: `jig: ${rel} is protected by check ${c.id} in ${relative(root, path)}. Acceptance tests come from the spec; edit one only when the spec changed, and log the decision in the plan.`,
-          },
-        };
+        return ask('protects', `jig: ${rel} is protected by check ${c.id} in ${relative(root, path)}. Acceptance tests come from the spec; edit one only when the spec changed, and log the decision in the plan.`);
       }
     }
   }
@@ -215,13 +213,7 @@ export function preBash(input) {
   const pkgs = installedPackages(cmd);
   if (!pkgs.length) return null;
   const names = pkgs.map((p) => `${p.name} (${p.eco})`).join(', ');
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'ask',
-      permissionDecisionReason: `jig: this adds ${names}. A new dependency is a one-way door: check that the name is the real package (hallucinated names get registered by attackers), its age and downloads, and record it in the plan's Decisions.`,
-    },
-  };
+  return ask('install', `jig: this adds ${names}. A new dependency is a one-way door: check that the name is the real package (hallucinated names get registered by attackers), its age and downloads, and record it in the plan's Decisions.`);
 }
 
 export function stop(input) {
@@ -249,10 +241,10 @@ export function stop(input) {
   const ev = mine[mine.length - 1] ?? null;
   const run = `Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.`;
   // Evidence that ran no checks proves nothing.
-  if (!ev || !(ev.results ?? []).length) return { decision: 'block', reason: `jig: files changed and no \`jig verify\` has run a check. ${run}` };
-  if (tree && !ev.tree) return { decision: 'block', reason: `jig: the last \`jig verify\` has no tree id (it was recorded before jig 2.1), so it can't show which files it checked. ${run}` };
+  if (!ev || !(ev.results ?? []).length) return block('tree', `jig: files changed and no \`jig verify\` has run a check. ${run}`);
+  if (tree && !ev.tree) return block('tree', `jig: the last \`jig verify\` has no tree id (it was recorded before jig 2.1), so it can't show which files it checked. ${run}`);
   if (tree ? ev.tree !== tree : ev.t < st.data.editedAt) {
-    return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. ${run}` };
+    return block('tree', `jig: files changed since the last \`jig verify\` that ran a check. ${run}`);
   }
   // Rounds per plan, from each plan's own last record when it covers this
   // tree. Each failing record blocks once; the next block needs a new verify.
@@ -270,7 +262,7 @@ export function stop(input) {
   if (!reasons.length) return null;
   st.data.blockedRecords = [...blocked].slice(-50);
   st.save();
-  return { decision: 'block', reason: reasons.join(' ') };
+  return block('rounds', reasons.join(' '));
 }
 
 function roundsReason(plan, rounds) {
@@ -301,13 +293,42 @@ export function failedRounds(records, id) {
 
 const HANDLERS = { 'session-start': sessionStart, 'pre-edit': preEdit, 'pre-bash': preBash, stop };
 
+// JIG_GATES=observe logs every ask and block to .git/jig/observe.jsonl and
+// prints nothing; observe:<gate>,<gate> does that for the named gates only.
+// Use it to count false positives before a gate enforces. Gates: protects,
+// freeze, install, tree, rounds, and rules (observe-only for now).
+function observed(gate) {
+  const v = (process.env.JIG_GATES ?? '').trim();
+  if (v === 'observe') return true;
+  const m = v.match(/^observe:(.*)$/);
+  return Boolean(m && m[1].split(',').map((s) => s.trim()).includes(gate));
+}
+
+function observe(input, hook, gate, out) {
+  const root = rootOf(input);
+  const file = input.tool_input?.file_path;
+  const entry = {
+    t: Date.now(), hook, gate, session: sid(input),
+    decision: out.decision ?? out.hookSpecificOutput?.permissionDecision,
+    reason: out.reason ?? out.hookSpecificOutput?.permissionDecisionReason,
+    ...(file ? { file: relative(root, isAbsolute(file) ? file : join(root, file)) } : {}),
+    ...(input.tool_input?.command ? { command: String(input.tool_input.command).slice(0, 200) } : {}),
+  };
+  appendFileSync(join(stateDir(root), 'observe.jsonl'), JSON.stringify(entry) + '\n');
+}
+
 export function runHook(name) {
   const fn = HANDLERS[name];
   if (!fn) { console.error(`jig hook: unknown hook "${name}" (${Object.keys(HANDLERS).join(', ')})`); return 2; }
   if (off(name)) return 0;
   try {
-    const out = fn(readStdin());
-    if (out) emit(out);
+    const input = readStdin();
+    const out = fn(input);
+    if (out) {
+      const { gate, ...rest } = out;
+      if (gate && observed(gate)) observe(input, name, gate, rest);
+      else emit(rest);
+    }
   } catch (e) {
     // Guardrails, not a security boundary (Bash can edit files without Edit):
     // an unexpected error must not block all work. The protected-file check

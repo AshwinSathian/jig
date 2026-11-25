@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S5 observe mode next. S1 to S4 done.
+Now: S6 dogfood and release 2.1.0 in progress. S1 to S5 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -65,12 +65,12 @@ Goal: lint warns on retry and sleep in a check (J22), errors on a check that can
 Touch: `cli/lib/lint.mjs`, `cli/lib/verify.mjs`, `cli/jig.mjs`, `test/lint.test.mjs`, `test/verify.test.mjs`, `skills/build/SKILL.md`, `references/failure-modes.md`, `references/team.md`, `references/plan-format.md`
 Checks: C7, C8, C9, R4
 
-### S5: Observe mode [todo]
+### S5: Observe mode [done]
 Goal: with `JIG_GATES=observe`, every ask or block is appended to `.git/jig/observe.jsonl` and the hook prints nothing. With `observe:<gates>`, only the named gates are observed, and the rest still ask. Context-only output is unchanged. The `rules` gate exists and is always observed.
 Touch: `cli/lib/hooks.mjs`, `test/observe.test.mjs (new)`, `evals/dogfood-hooks.mjs (new)`
 Checks: C10, R5
 
-### S6: Dogfood and release 2.1.0 [todo]
+### S6: Dogfood and release 2.1.0 [doing]
 Goal: doctor, lint and the hooks in observe mode run on the chattermeter clone; a Log line starting "observe-mode dogfood 2.1.0" gives the observe event count, false positives and hook p50; versions are bumped, the CHANGELOG and README are updated where behaviour changed, and the PR is open with CI green.
 Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`
 Checks: C11, C12, C24, R6
@@ -128,3 +128,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25 20:03: jig verify S4: C7 pass; C8 pass; C9 pass; R4 FAIL (exit 1 (expected 0): })
 - 2026-11-25 20:04: jig verify S4: C7 pass; C8 pass; C9 pass; R4 pass
 - 2026-11-25: The first S4 re-verify above failed R4 because `npm test` picked up S5's untracked `observe.test.mjs`, which fails until S5 lands. I moved it aside and verified again (the line above). The fix commit was amended so its trailer reports that run.
+- 2026-11-25 20:05: jig verify S5: C10 pass; R5 pass
+- 2026-11-25: S5 done. Three of four new observe tests failed before the change. Every ask and block now names its gate (protects, freeze, install, tree, rounds). With `JIG_GATES=observe` (all gates) or `observe:<gates>`, `runHook` appends the decision to `.git/jig/observe.jsonl` and prints nothing. Context-only output is unchanged. The new rules gate (REVIEW.md, CLAUDE.md, `.claude/`, `.github/workflows/`) only logs, in any repo, until the owner decides from the log. `evals/dogfood-hooks.mjs` moves to S6, where it is used.
