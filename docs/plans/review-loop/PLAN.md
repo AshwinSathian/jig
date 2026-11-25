@@ -1,7 +1,7 @@
 # Post-build review
 
-Status: approved · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S1 next (checked landscape and spikes).
+Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
+Now: S2 doing (`jig review` router).
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -44,13 +44,13 @@ Done when:
 
 ## Slices
 
-### S1: Checked landscape and spikes [todo]
+### S1: Checked landscape and spikes [done]
 Goal: `docs/research/2026-11-review-landscape.md` keeps only the claims whose primary source was opened in this slice, and tags or drops the rest. The spike answers and listing-budget numbers are each one line in the Log.
 Touch: `docs/research/2026-11-review-landscape.md (new)`
 Checks: C1
 - Risk: a source won't open, and its claim slips in untagged. Detect: C1 fails on a bullet with a URL but no tag. Fallback: tag it UNVERIFIED or drop it.
 
-### S2: `jig review` router [todo]
+### S2: `jig review` router [doing]
 Goal: `jig review` resolves the base in the Decisions' order, and prints a brief with base, head, tree fingerprint, diff stats, triggers with their matched files, REVIEW.md entries from the base whose `When:` matches, checks.json presence, and the last evidence and review records with a `current` flag. `--json` prints the same as JSON. It runs only git and gh.
 Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review.test.mjs (new)`, `test/review-triggers.test.mjs (new)`
 Checks: C2, C3, C4, R2
@@ -117,3 +117,5 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-25: Spike, listing budget: descriptions are cut at 1,536 characters, the listing gets 1% of the context window, and the least-used skills lose their descriptions first. jig's current descriptions: plan 599, guard 453, build 387, jig-reviewer 315 (1,754 characters). The docs don't say whether agent descriptions count. This machine has more than 150 skills, and at least 7 high-collision review triggers (brief §1).
 - 2026-11-25: jig-reviewer plan review: fix first, 12 findings. Applied 11. C18 now tests a new file, C1 needs 10 `[opened]` sources and a tag on every line with a URL or a percentage, the red team gets a worktree at head (frontmatter isolation branches from the default branch), its limits are written down as prompt-only, the listing ceiling is 2,600 characters, the three departures moved to Questions, the seven missing requirements went into slice Goals and C8, the commit gate's tree and message forms are defined, hook-timing gates both p50s, C4 takes its base from the merge-base, and the finding id is defined. Not applied: dropping `(new)` from later slices' Touch, because `jig lint` raises J11 on any path that doesn't exist yet.
 - 2026-11-25: Owner answers: merged PR #6 with a merge commit (e21a3d6), so the branch now starts from `main` and Baseline moves to e21a3d6. Agents use `model: opus`. All three departures are accepted. The owner also asked to go beyond the basics. Plan approved by the owner.
+- 2026-11-25 23:36: jig verify S1: C1 pass
+- 2026-11-25: S1 done. Three agents reopened all 36 sources in the brief. 33 confirmed. Martian's "offline results diverged" and SHADE-Arena's "accepting a clearly false justification" aren't on the pages, so both are now UNVERIFIED. Six claims were reworded to match their pages: AutoCommenter's 6% to 1.3% is about comments on unchanged lines, thresholds are per rule URL, RovoDev's judge had "minimal impact", Smit doesn't make the equal-compute point (Wang does), the CVE paper is about re-introduction through PR metadata, and ImpossibleBench's monitor numbers are on Impossible-SWEbench. Kim et al. is cited without the ICML venue. C1 failed on a mutation (an untagged "40%" line). No jig-reviewer pass: the diff is one research doc, and the reviewer can't open web sources, which the three agents did.
