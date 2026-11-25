@@ -113,6 +113,20 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
       warn('J21', 0, `acceptance check ${c.id} runs \`${c.cmd}\` with no filter for its own tests, so it can pass before the behaviour exists; point it at the new test file or name`);
     }
   }
+  // J22: a check that retries or sleeps hides a flaky test instead of fixing
+  // it. J23: a check that can't fail checks nothing.
+  // Only shell syntax counts: a test named "retry backoff" is fine. A cleanup
+  // step such as `pkill x || true; npm test` can still fail, so J23 looks only
+  // at how the command ends.
+  const RETRY = /--retr(y|ies)\b|--reruns?\b|\bretries=\d|(^|[;&|]\s*)(npx\s+)?retry\b|\bsleep\s+\d|\b(until|while)\b.*;\s*do\b|\bfor\b.*;\s*do\b.*\bbreak\b/;
+  const CANT_FAIL = /(\|\|\s*(true|:|\/bin\/true|exit\s+0|echo\b[^;&|]*)|;\s*(true|:|exit\s+0)|\|\s*(tail|head|tee)\b[^;&|]*)\s*$/;
+  const ending = (cmd) => cmd.replace(/\s+#[^'"]*$/, '');
+  for (const c of checksData?.checks ?? []) {
+    if (typeof c.cmd !== 'string') continue;
+    if (RETRY.test(c.cmd)) warn('J22', 0, `check ${c.id} retries or sleeps (\`${c.cmd}\`); find the flaky test's cause, or delete the test and log why`);
+    if (CANT_FAIL.test(ending(c.cmd)) && !(/\|\s*(tail|head|tee)\b[^;&|]*$/.test(ending(c.cmd)) && /pipefail/.test(c.cmd))) err('J23', 0, `check ${c.id} can't fail (\`${c.cmd}\`); its exit status comes from \`|| true\`, \`|| echo\`, \`; exit 0\` or a pipe into \`tail\`/\`head\`/\`tee\`; remove it, or use \`set -o pipefail\``);
+  }
+  const checkSlice = new Map((checksData?.checks ?? []).map((c) => [c.id, c.slice]));
   const slicesSec = section(plan, 'Slices');
   if (slicesSec && !plan.slices.length) err('J08', slicesSec.start, 'Slices section has no "### S<n>: <title> [state]" headings');
   const doing = [];
@@ -142,6 +156,9 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
       if (!ids.length && !hasCmd) err('J09', s.fields.checks.line, `slice ${s.id} Checks: names no check IDs or commands`);
       if (checksData) {
         for (const id of ids) if (!knownIds.has(id)) err('J10', s.fields.checks.line, `check ${id} is not in checks.json`);
+        // jig verify runs a slice's checks by their `slice` field, so a check
+        // listed here but owned by another slice never runs for this one.
+        for (const id of ids) if (knownIds.has(id) && checkSlice.get(id) !== s.id) warn('J24', s.fields.checks.line, `check ${id} belongs to ${checkSlice.get(id)}, so \`jig verify\` won't run it for ${s.id}; give ${s.id} its own check`);
       } else if (ids.length && checks) {
         err('J10', s.fields.checks.line, `slice ${s.id} names check IDs but there is no checks.json (a brief plan may give commands in backticks instead)`);
       }

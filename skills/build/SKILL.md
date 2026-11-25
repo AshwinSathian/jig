@@ -40,7 +40,8 @@ List each acceptance test file under `protects` in `checks.json`. From then on, 
 Run `jig verify --record` for the slice. It runs the slice's checks, prints one line per check, and appends the result to the Log. That Log line is the evidence the slice is done. A sentence saying the tests pass is not evidence.
 
 - **All green:** go to step 5.
-- **A check fails:** fix the code, not the check, and verify again.
+- **A check fails:** fix the code, not the check, and verify again. You get three rounds on the same check. If it still fails on the third `jig verify`, stop: don't try a fourth fix. Report to the owner what you changed in each round and the current error, and let them decide. The Stop hook counts the rounds from `evidence.jsonl` and says when you've reached three.
+- **A check is flaky** (passes and fails on the same code): don't add retries, sleeps or a skip, and don't rerun it until it passes. Find the cause. If you can't, delete the test, log why, and tell the owner (deleting a protected test asks first). `jig lint` warns on a check command that retries or sleeps [J22], and rejects one that can't fail, such as `|| true` [J23].
 - **A check can't run here** (missing service, credentials, hardware): say so in the Log and to the owner. Don't count it as passing.
 
 At the full tier, hand the slice to the `jig-reviewer` agent in diff mode, with the plan path and slice ID. Fix the findings, or log why one doesn't apply.
@@ -52,7 +53,7 @@ When the slice changes UI and the loupe skill is available, run it on the affect
 1. Mark the slice `[done]` and update `Now:` to the next slice.
 2. Append a Log line saying, in two or three sentences, what changed and why. This is for whoever reads the code next, including the owner checking they still understand their system.
 3. Run `jig lint` on the plan.
-4. Commit the slice with a message that says what it does.
+4. Commit the slice with a message that says what it does. End the message with the `Verified:` line that `jig verify --record` printed, for example `Verified: S2 C1 pass, C2 pass (tree 3f2a91c)`. If nothing was verified, write `Verified: none (<reason>)` instead, so the commit can be found later.
 
 Then stop and report to the owner:
 - the slice

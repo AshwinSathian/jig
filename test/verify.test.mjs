@@ -66,3 +66,19 @@ test('verify times out a hung check', () => {
   assert.equal(res.results[0].pass, false);
   assert.match(res.results[0].why, /timed out/);
 });
+
+test('verify --record prints a Verified trailer for the slice commit', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { dir, g } = tempRepo();
+  const [planPath] = newPlan(dir, 'demo', { tier: 'full', title: 'Demo' });
+  writeFileSync(join(dir, 'docs/plans/demo/checks.json'), JSON.stringify({ version: 1, checks: [
+    { id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node -e ""', timeout_s: 10, fast: true },
+    { id: 'C2', slice: 'S1', kind: 'regression', cmd: 'node -e "process.exit(1)"', timeout_s: 10, fast: true },
+  ] }));
+  g('add', '-A'); g('commit', '-qm', 'plan');
+  const cli = join(import.meta.dirname, '..', 'cli', 'jig.mjs');
+  const r = spawnSync('node', [cli, 'verify', '--plan', planPath, '--slice', 'S1', '--record'], { cwd: dir, encoding: 'utf8' });
+  assert.match(r.stdout, /^Verified: S1 C1 pass, C2 FAIL \(tree [0-9a-f]{7}\)$/m);
+  const plain = spawnSync('node', [cli, 'verify', '--plan', planPath, '--slice', 'S1'], { cwd: dir, encoding: 'utf8' });
+  assert.doesNotMatch(plain.stdout, /^Verified:/m, 'only --record prints it');
+});

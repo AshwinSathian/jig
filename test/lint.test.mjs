@@ -53,15 +53,52 @@ const MUTATIONS = [
   ['J17', full, (t) => t, { exists: true, data: { version: 1, checks: [{ id: 'C1', slice: 'S7', kind: 'vibes', cmd: '', timeout_s: 9999 }] }, error: null }],
   ['J18', full, (t) => t.replace('Now: S2 in progress', 'Now: S5 in progress')],
   ['J19', full, (t) => t.replace('[done]', '[doing]')],
+  ['J22', full, (t) => t, withCmd('C1', 'npx jest --retries 3 export.accept'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'sleep 5 && node -e ""'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'until node -e ""; do echo again; done'), 'warning'],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || true')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept; exit 0')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || :')],
+  ['J24', full, (t) => t.replace('Checks: C3, C4', 'Checks: C3, C4, C1'), null, 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'npx cypress run --config retries=2'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'for i in 1 2 3; do npm test && break; done'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'while ! npm test; do :; done'), 'warning'],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || true # flaky')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || echo failed')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept; true')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept 2>&1 | tail -20')],
 ];
 
-for (const [rule, base, mutate, checks] of MUTATIONS) {
+// The good full fixture's checks with one cmd replaced.
+function withCmd(id, cmd) {
+  const data = JSON.parse(JSON.stringify(fullChecks.data));
+  data.checks.find((c) => c.id === id).cmd = cmd;
+  return { exists: true, data, error: null };
+}
+
+for (const [rule, base, mutate, checks, level = 'error'] of MUTATIONS) {
   test(`mutation for ${rule} is caught`, () => {
     const isFull = base === full;
     const ps = lint(mutate(base), checks ?? (isFull ? fullChecks : NO_CHECKS));
-    assert.ok(ps.some((p) => p.rule === rule && p.level === 'error'), `expected ${rule}, got ${JSON.stringify(ps.map((p) => p.rule))}`);
+    assert.ok(ps.some((p) => p.rule === rule && p.level === level), `expected ${level} ${rule}, got ${JSON.stringify(ps.map((p) => `${p.level} ${p.rule}`))}`);
   });
 }
+
+test('the good full plan, and checks that can still fail, raise no J22, J23 or J24', () => {
+  assert.deepEqual(lint(full, fullChecks).filter((p) => ['J22', 'J23', 'J24'].includes(p.rule)), []);
+  for (const cmd of [
+    'pkill -f server || true; npm test',
+    'rm -rf dist || true && npm test',
+    'docker rm -f db || true; docker run -d db && npm run e2e',
+    'node --test test/retry.test.mjs',
+    'npx jest -t "retry backoff"',
+    'npx vitest run src/retry',
+    'node --test --test-name-pattern "waits until the lock is released and do not double-charge" test/lock.test.mjs',
+    'set -o pipefail; npm test 2>&1 | tail -20',
+  ]) {
+    assert.deepEqual(lint(full, withCmd('C1', cmd)).filter((p) => ['J22', 'J23'].includes(p.rule)).map((p) => p.rule), [], cmd);
+  }
+});
 
 test('vague words and risk grids are warnings, not errors', () => {
   const ps = lint(brief.replace('Goal: requests past 10', 'Goal: soon, requests past 10').replace('## Log', 'Likelihood: High, Impact: High, Score 9\n\n## Log'));
