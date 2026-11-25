@@ -3,7 +3,7 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, appendFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute, dirname, basename } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
@@ -136,16 +136,36 @@ export function preEdit(input) {
   const root = rootOf(input);
   const given = isAbsolute(raw) ? raw : join(root, raw);
   const named = underRealDir(given);
-  let target = null;
-  try { target = realpathSync(named); } catch { /* new file: no target yet */ }
+  const hops = linkTargets(named);
+  if (hops === null) return ask(undefined, `jig: ${relative(root, named)} is a symlink jig can't resolve (a loop or an unreadable link), so it can't tell what this edit would change.`);
   // Spellings to judge: resolved directories with the edit's file name, the
   // path exactly as given (keeps an in-repo directory link's name, such as a
-  // linked .github/), and the final target. The first ask wins.
-  const paths = [...new Set([named, given, target].filter(Boolean))];
+  // linked .github/), and every hop of a symlink chain, including a target
+  // that doesn't exist yet (a Write through a dangling link creates it).
+  const paths = [...new Set([named, given, ...hops])];
   const at = (p) => ({ ...input, tool_input: { ...input.tool_input, [key]: p } });
   const asks = (o) => Boolean(o?.decision || o?.hookSpecificOutput?.permissionDecision);
   const outs = paths.map((p) => guardPath(at(p)));
-  return outs.find(asks) ?? outs[0];
+  // An ask observe mode can't silence beats an enforced one, which beats an
+  // observed one: whichever is returned is what runHook acts on.
+  return outs.find((o) => asks(o) && !o.gate) ?? outs.find((o) => asks(o) && !observed(o.gate)) ?? outs.find(asks) ?? outs[0];
+}
+
+// The paths a symlink chain passes through, each under a real directory.
+// [] when the path isn't a link; null when the chain can't be followed.
+function linkTargets(p) {
+  const out = [];
+  let cur = p;
+  for (let i = 0; i < 40; i++) {
+    let st;
+    try { st = lstatSync(cur); } catch { return out; } // missing: the chain ends here
+    if (!st.isSymbolicLink()) return out;
+    let to;
+    try { to = readlinkSync(cur); } catch { return null; }
+    cur = underRealDir(isAbsolute(to) ? to : join(dirname(cur), to));
+    out.push(cur);
+  }
+  return null;
 }
 
 function guardPath(input) {

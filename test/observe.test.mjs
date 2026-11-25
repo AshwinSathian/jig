@@ -166,3 +166,25 @@ test('pre-edit: a workflow reached through a linked .github directory still asks
   const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/x.yml'), content: 'x' } }));
   assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
 });
+
+test('pre-edit: a dangling symlink is judged by where it would write', () => {
+  const { dir } = tempRepo();
+  symlinkSync('.github/workflows/new.yml', join(dir, 'notes.md'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'notes.md'), content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+  symlinkSync('loop-b', join(dir, 'loop-a')); symlinkSync('loop-a', join(dir, 'loop-b'));
+  const loop = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'loop-a'), content: 'x' } }));
+  assert.equal(loop?.hookSpecificOutput?.permissionDecision, 'ask', 'a link that cannot be resolved fails closed');
+});
+
+test('pre-edit: across spellings, an ask that must hold beats an observed one', () => {
+  const { dir } = planRepo();
+  // By name: the protected test (observed here, and judged first). By target:
+  // CLAUDE.md, whose new text sets a switch, which must always ask.
+  writeFileSync(join(dir, 'CLAUDE.md'), '# rules\n');
+  unlinkSync(join(dir, 'test/a.accept.test.js'));
+  symlinkSync('../CLAUDE.md', join(dir, 'test/a.accept.test.js'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'test/a.accept.test.js'), content: 'JIG_GATES=observe\n' } }), { JIG_GATES: 'observe:protects' });
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /JIG_GATES/);
+});
