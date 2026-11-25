@@ -105,13 +105,14 @@ const isRuleFile = (rel) => {
   const parts = rel.toLowerCase().split(/[\\/]/);
   return ['claude.md', 'review.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || parts.slice(0, 2).join('/') === '.github/workflows';
 };
-const SWITCHES = /\bJIG_(GATES|HOOKS_OFF)\b/;
+// Any case (Windows env names ignore it), or JIG followed by an escape.
+const SWITCHES = /\bjig_(gates|hooks_off)\b|\bjig\\[xuU_]/i;
 
-// Switch names in a file's text, decoding JSON so an escape can't hide one.
+// The first switch in a file's text, decoding JSON so an escape can't hide one.
 function switchesIn(text) {
   let s = text;
   try { s = JSON.stringify(JSON.parse(text)); } catch { /* not JSON: match the raw text */ }
-  return new Set([...s.matchAll(new RegExp(SWITCHES, 'g'))].map((m) => m[0]));
+  return s.match(SWITCHES)?.[0] ?? null;
 }
 
 export function preEdit(input) {
@@ -121,16 +122,16 @@ export function preEdit(input) {
   const rel = abs ? relative(root, abs) : null;
   // Turning jig's gates off from a rule file always asks, and has no gate
   // name, so observe mode can't silence it. Judged on the whole file after
-  // the edit, so a switch can't be assembled from existing text.
+  // the edit: any change to a rule file that mentions a switch asks, so a
+  // switch can't be assembled from existing text or have its value changed.
   if (rel && isRuleFile(rel)) {
     const before = existsSync(abs) ? readFileSync(abs, 'utf8') : '';
     const after = applyEdit(before, input.tool_name, input.tool_input ?? {});
-    const was = switchesIn(before);
-    const added = after === null ? null : [...switchesIn(after)].find((s) => !was.has(s));
+    const added = after === null || after === before ? null : switchesIn(after);
     if (after === null || added) {
       return ask(undefined, after === null
         ? `jig: this edit to ${rel} can't be applied to the current file, so jig can't tell whether it turns jig's gates off. Re-read the file and retry, or approve if the edit is right.`
-        : `jig: this edit to ${rel} sets ${added}, which switches jig's gates off or into observe mode. That's the owner's call.`);
+        : `jig: this edit to ${rel} mentions ${added}, which switches jig's gates off or into observe mode. That's the owner's call.`);
     }
   }
   const out = guardEdit(input);

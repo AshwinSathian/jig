@@ -92,3 +92,14 @@ test('switches gate: judged on the file after the edit, decoded, and in any case
   assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.CLAUDE/settings.json'), content: '{"env":{"JIG_GATES":"observe"}}' } }), 'other case');
   assert.ok(!asks({ tool_name: 'Edit', tool_input: { file_path: join(dir, '.claude/settings.json'), old_string: '"1"', new_string: '"2"' } }), 'unrelated edit');
 });
+
+test('switches gate: changing an existing switch value, or spelling it another way, asks', () => {
+  const { dir, g } = tempRepo();
+  mkdirSync(join(dir, '.claude'));
+  writeFileSync(join(dir, '.claude/settings.json'), '{"env":{"JIG_GATES":""}}\n');
+  g('add', '-A'); g('commit', '-qm', 'settings');
+  const asks = (input) => hook('pre-edit', base(dir, input))?.hookSpecificOutput?.permissionDecision === 'ask';
+  assert.ok(asks({ tool_name: 'Edit', tool_input: { file_path: join(dir, '.claude/settings.json'), old_string: '""', new_string: '"observe"' } }), 'value change');
+  assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/ci.yml'), content: 'env:\n  "JIG\\x5fHOOKS_OFF": all\n' } }), 'YAML escape');
+  assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, 'CLAUDE.md'), content: 'set jig_hooks_off=all' } }), 'other case');
+});
