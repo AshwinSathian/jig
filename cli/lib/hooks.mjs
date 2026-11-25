@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
-import { loadChecks, validateChecks } from './checks.mjs';
+import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
 import { lastEvidence } from './verify.mjs';
 
 const off = (name) => {
@@ -59,6 +59,19 @@ export function sessionStart(input) {
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n\n') } };
 }
 
+// Why an edit to an active plan's checks.json needs a person, or null.
+// Fails closed: a result that doesn't parse or validate asks.
+function frozenChange(checks, input) {
+  const after = applyEdit(readFileSync(checks.path, 'utf8'), input.tool_name, input.tool_input ?? {});
+  if (after === null) return null;
+  let data;
+  try { data = JSON.parse(after); } catch (e) { return `would leave invalid JSON (${e.message})`; }
+  const problems = validateChecks(data);
+  if (problems.length) return `would leave an invalid checks.json (${problems[0]})`;
+  const loose = loosened(snapshot(checks.data.checks), snapshot(data.checks));
+  return loose.length ? `loosens ${loose.map((l) => `${l.id} (${l.why})`).join('; ')}` : null;
+}
+
 export function preEdit(input) {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (!file) return null;
@@ -84,6 +97,18 @@ export function preEdit(input) {
           permissionDecisionReason: `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`,
         },
       };
+    }
+    if (checks.exists && rel === relative(root, checks.path)) {
+      const why = frozenChange(checks, input);
+      if (why) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'ask',
+            permissionDecisionReason: `jig: this edit to ${rel} ${why}. The plan is approved, so its checks are frozen: add checks or protected paths freely, but loosening one needs the owner's yes and a Log line.`,
+          },
+        };
+      }
     }
     for (const c of checks.data?.checks ?? []) {
       if ((c.protects ?? []).some((p) => pathMatches(rel, p))) {

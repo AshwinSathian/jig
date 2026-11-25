@@ -1,7 +1,7 @@
 # Verification loops
 
-Status: approved · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: approved. Next: S1, freeze checks.json.
+Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
+Now: S2 evidence fingerprint in progress. S1 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -42,14 +42,14 @@ Done when:
 
 ## Slices
 
-### S1: Freeze checks.json [todo]
+### S1: Freeze checks.json [done]
 Goal: an Edit, Write or MultiEdit that loosens an existing check asks while the plan is approved or building; additions are silent; `jig verify` records per-check hashes and names changed checks in its output and Log line. First test reproduces gap 1 on the current code.
 Touch: `cli/lib/hooks.mjs`, `cli/lib/checks.mjs`, `cli/lib/verify.mjs`, `cli/jig.mjs`, `test/freeze.test.mjs (new)`, `test/helpers.mjs (new)`, `test/hooks.test.mjs`
 Note: `test/helpers.mjs` takes `hook()` and `planRepo()` out of `hooks.test.mjs`. `tempRepo` stays in `verify.test.mjs`.
 Checks: C1, C2
 - Risk: real Edit payloads differ from the assumed shape. Detect: a `claude --plugin-dir .` run in an isolated config dir that loosens a check gets no ask. Fallback: ask on any checks.json edit whose result can't be computed.
 
-### S2: Evidence fingerprint [todo]
+### S2: Evidence fingerprint [doing]
 Goal: evidence records carry `head` and `tree`; the Stop hook blocks when the tree differs from both the session-start tree and the last evidence, including when code changed only through Bash. First test reproduces gap 2.
 Touch: `cli/lib/git.mjs`, `cli/lib/verify.mjs`, `cli/lib/hooks.mjs`, `test/fingerprint.test.mjs (new)`, `evals/hook-timing.mjs (new)`
 Checks: C3, C4, R2
@@ -107,3 +107,6 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: Survey. 69 tests pass in 4.0 s. A fingerprint spike on chattermeter (2,805 tracked files, clean) took 364 ms cold and 93 ms warm with an empty temp index, and 112 to 118 ms with a copied index, giving the same tree. Changes to the design brief, from the code: tree-only comparison (commits move HEAD), tree computed after the checks run, session-start tree stored once, J23 split from J17, observe mode moved to 2.1.0, and the reviewer eval graders don't parse severities.
 - 2026-11-25: jig-reviewer plan review: fix first, 10 findings, all applied. Each slice gets its own regression check, and J24 is added. The verify freeze falls back to HEAD and tracks `protects` removals. Observe mode can name gates. C4 enforces 1000 ms. The temp index is per process, and a null tree falls back to `editedAt`. Added a filter risk, version checks in C11 and C21, and dogfood Log checks C24 and C25. `helpers.mjs` holds only the hook helpers.
 - 2026-11-25: Owner approved the plan. Answers: the rule-file gate goes observe-first (the `rules` gate, always observed in 2.1.0), and the observe-mode dogfood uses no headless sessions, so it drives the hooks with scripted payloads. The reviewer eval still needs the owner's yes after its dry run.
+- 2026-11-25 19:27: jig verify S1: C1 pass; C2 pass
+- 2026-11-25 19:29: jig verify S1: C1 pass; C2 pass
+- 2026-11-25: S1 done. Gap 1 reproduced first: 5 of 7 new freeze tests failed on 9bffbb5, including a plain Edit that loosened C1's `cmd`. The pre-edit hook now applies the Write, Edit or MultiEdit to checks.json in memory and asks when a check is removed, a frozen field changes or a `protects` entry is dropped. Evidence records carry per-field hashes, and `jig verify` names loosened checks against the last logged record (or HEAD). The jig-reviewer diff pass found 5 issues, all fixed: a plain verify could absorb a Bash edit before the Log saw it (now compared against records that wrote a Log line), an unreadable HEAD checks.json was silent, the replace_all test passed vacuously, and `lastEvidence` parsed the whole file. The payload shapes were checked against the Claude Code hooks docs, not a live run, because the owner declined API spend.

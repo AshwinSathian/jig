@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 export const KINDS = ['acceptance', 'regression', 'property', 'mutation', 'perf', 'security'];
 const ID_RE = /^[A-Za-z][\w.-]*$/;
@@ -53,4 +54,48 @@ export function validateChecks(data, sliceIds = null) {
     }
   });
   return errs;
+}
+
+// The freeze. Once a plan is approved, a check's frozen fields and its
+// protects list may only grow: changing a field, dropping a check or dropping
+// a protected path needs a person. A snapshot holds a short hash per frozen
+// field, so evidence records can be compared without storing commands.
+export const FROZEN = ['cmd', 'expect', 'kind', 'timeout_s', 'fast', 'slice'];
+
+const canon = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+const short = (v) => createHash('sha256').update(JSON.stringify(canon(v) ?? null)).digest('hex').slice(0, 12);
+
+export function snapshot(checks) {
+  const out = {};
+  for (const c of checks ?? []) {
+    if (!c || typeof c.id !== 'string') continue;
+    out[c.id] = { f: Object.fromEntries(FROZEN.map((k) => [k, short(c[k])])), protects: [...(c.protects ?? [])].sort() };
+  }
+  return out;
+}
+
+// What got looser from `before` to `after` (both snapshots): [{ id, why }].
+export function loosened(before, after) {
+  const out = [];
+  for (const [id, b] of Object.entries(before ?? {})) {
+    const a = after[id];
+    if (!a) { out.push({ id, why: 'removed' }); continue; }
+    const why = FROZEN.filter((k) => b.f?.[k] !== a.f?.[k]);
+    for (const p of b.protects ?? []) if (!a.protects.includes(p)) why.push(`protects -${p}`);
+    if (why.length) out.push({ id, why: why.join(', ') });
+  }
+  return out;
+}
+
+// The file text a Write, Edit or MultiEdit would leave. null when the edit
+// can't apply (the tool then fails on its own).
+export function applyEdit(text, toolName, input) {
+  if (toolName === 'Write' || typeof input.content === 'string') return input.content ?? null;
+  const edits = Array.isArray(input.edits) ? input.edits : [input];
+  let t = text;
+  for (const e of edits) {
+    if (typeof e.old_string !== 'string' || typeof e.new_string !== 'string' || !t.includes(e.old_string)) return null;
+    t = e.replace_all ? t.split(e.old_string).join(e.new_string) : t.replace(e.old_string, () => e.new_string);
+  }
+  return t;
 }
