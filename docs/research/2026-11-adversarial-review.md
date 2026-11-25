@@ -89,7 +89,7 @@ What v2 needs: an explicit ambiguity check before any drafting. Ask the question
 - "Execute every step in order. Do not skip.", "Non-negotiable", and a fixed six-step procedure are the patterns current guidance says to remove. Anthropic's prompting guide says Opus 4.5 and 4.6 "might now overtrigger" on aggressive language. Claude Code best practices say piled-on emphasis makes Claude over-apply a rule, and a rule that can't bend should be a hook. The Fable 5 guide says skills written for prior models "are often too prescriptive ... and can degrade output quality", and recommends general instructions over hand-written step lists.
 - No rule carries a reason. The Fable 5 guide says "give the reason, not only the request."
 - The trigger list includes "build", "implement", "design", "let's work on" and "integrate with". With the memory note telling every session "Do NOT skip the planner", nearly every coding request routes through a planning step. That overlaps `superpowers:brainstorming`, `superpowers:writing-plans` (which produced `booklet/PLAN-typeset-redesign-pr1.md`) and built-in plan mode, and the skill says nothing about how it relates to any of them.
-- Step 3 tells the agent to "Look for prior decisions" and Step 1 to "Read every file in the codebase that relates". Restating the repo in the plan is the content Gloaguen et al. found added over 20% cost with no success gain ("Evaluating AGENTS.md", arXiv 2602.11988). The plan should record what the repo doesn't already say.
+- Step 3 tells the agent to "Look for prior decisions" and Step 1 to "Read every file in the codebase that relates". Restating the repo in the plan is the content Gloaguen et al. found added 20–23% cost with no significant success change ("Evaluating AGENTS.md", arXiv 2602.11988). The plan should record what the repo doesn't already say.
 
 What v2 needs: plain instructions with reasons, critical rules first, a narrow description that fires on multi-step or ambiguous work, and an explicit position on plan mode and the superpowers planning skills (defer to them, replace them, or hand off to them).
 
@@ -124,13 +124,73 @@ What v2 needs: a runnable eval suite (`claude plugin eval` or skill-creator's fo
 - Writing the plan to disk instead of only into chat.
 - A short summary in chat that points to the file.
 
-## Decisions for the owner before v2
+## 11. The plan stops at planning, but most AI code failures happen after it
 
-1. **Primary reader.** A solo developer driving agents (the field evidence), or teams too. This decides whether owners, dates and the RFC tier survive.
-2. **Relation to plan mode and superpowers.** Replace, wrap, or defer to `superpowers:writing-plans` and built-in plan mode.
-3. **Trigger breadth.** Auto-trigger on multi-step work, or run only when invoked (`disable-model-invocation: true`) and let your memory note decide.
-4. **Autonomy mode.** Lightkeeper's plan says "owner asked for zero intervention; every decision below is made, not proposed". Should v2 support approval-gated and autonomous modes explicitly?
-5. **Name and packaging.** Keep `plan-engineering`, or rename before publishing. Ship as a Claude Code plugin, through `npx skills add` like loupe, or both.
+This section adds the owner's earlier research on AI-native engineering, with each figure checked against its primary source on 2026-11-25. v1.0 has a "Testing Strategy" heading and nothing else downstream. It has no view of how AI-written code fails, so the plan can't aim its checks at those failures.
+
+### How AI-written code fails, and where a plan can catch it
+
+| Failure | Evidence | Where v2 catches it |
+|---|---|---|
+| Tests that mirror the code | Owner's research; consistent with ImpossibleBench | Acceptance examples written from the spec before code; mutation testing (Stryker) on the slice's code at tier 2; edits to protected tests ask first |
+| Swallowed errors | GitClear, "The Maintainability Gap" (2026, 623M changes): error-masking constructs +47%, meaning catch blocks, safe navigation and stubbed methods that hide unexpected input | Doctor checks for an empty-catch lint rule; the diff reviewer reads every catch block |
+| Duplication over reuse | GitClear, same report: code block duplication +81%, within-commit copy/paste +41% | The survey step lists existing helpers before drafting; the plan names what it reuses; the reviewer flags new helpers with near-duplicates |
+| Invented packages and APIs | Spracklen et al., USENIX Security 2025: 43% of hallucinated package names repeated in all 10 re-runs, 58% repeated more than once | New dependencies are a one-way door that needs a gate; the Bash hook asks on installs; lockfile diffs are checked |
+| Plausible wrong logic | CodeRabbit, 17 Dec 2025 (470 PRs): logic and correctness issues 75% more common in AI PRs | Worked examples in the spec; property-based tests (fast-check) where a rule has invariants |
+| Insecure defaults | Owner's research | Security prompts in the fundamentals reference; SAST in doctor's CI check; auth paths flagged for a human to read |
+| Performance blind spots | CodeRabbit: excessive I/O about 8x more common in AI PRs (the report doesn't break out N+1 queries) | Perf checks with thresholds when a slice touches a hot path; agents don't measure unless a check makes them |
+| Scope creep | Owner's research; Böckeler | Each slice lists the files it may touch; the Edit hook warns outside them; diff-size limits per slice |
+| False completion claims | Replit/SaaStr, July 2025 (The Register, 21 Jul 2025): the agent said rollback was impossible, and it wasn't | Check evidence (command, exit code, output line) goes in the Log; the Stop hook runs the fast checks |
+| Context rot | Chroma "Context Rot" 2025; Anthropic harness posts | One slice per session; the plan is the external memory; a SessionStart status line |
+| Destructive action in the wrong environment | Same Replit incident: the agent deleted a production database during a freeze it had been told about | Production and infrastructure changes are one-way doors; doctor reports agent-readable credentials. A freeze is enforced by permissions, and jig never claims a prompt enforces it. |
+
+### Engineering fundamentals as triggered prompts
+
+The owner's list covers algorithms, concurrency, databases, networking and OS, performance, distributed systems, software design and security. v1.0 has none of it. v2 shouldn't add it as a fixed checklist either, because a checklist of eight areas on every plan is the quota problem from finding 6 again. Each area becomes a short set of questions in `references/fundamentals.md`, loaded only when the slice touches that area. For example, a slice that adds a queue consumer loads the concurrency and distributed-systems questions: idempotency, unbounded concurrency, retry storms, partial failure, and "exactly-once" assumptions.
+
+### Need to mechanism
+
+The owner's table maps each need to one mechanism: a rule that must always hold goes to a deny rule or hook, a convention to a short CLAUDE.md, a procedure to a skill, isolated investigation to a subagent, and outside access to an MCP server. Current Claude Code guidance says the same: a rule that can't bend should be a hook. v1.0 puts everything in prose. v2 has a `guard` skill that applies this table when the same correction comes up twice, and the plan skill uses it to decide whether a requirement becomes a check, a hook or a sentence.
+
+### Security that belongs in the plan
+
+- **Lethal trifecta.** Private data, untrusted content and a way to send data out (Willison, 16 Jun 2025). A coding agent has all three by default. Plans that bring in untrusted input (issues, web pages, MCP output) should say which leg the session breaks.
+- **Repo config is an execution vector.** Check Point (25 Feb 2026) disclosed CVE-2025-59536 (MCP servers started before the trust dialog could be read; patched 22 Sep 2025) and CVE-2026-21852 (API key exfiltration through `ANTHROPIC_BASE_URL` in `.claude/settings.json`; patched 28 Dec 2025). OSV and NVD list CVE-2026-33068 (permission mode read from settings before the trust prompt; fixed in 2.1.53) and CVE-2026-40068 (worktree `commondir` not validated, 2.1.63 through 2.1.83; fixed in 2.1.84). `jig doctor` reports `.claude/settings.json` and `.mcp.json` in a repo so the owner reads them first. It never edits them.
+- **Supply chain and blast radius.** New packages are gated, as the slopsquatting row above describes. Doctor reports credentials and `.env` files readable without a deny rule. Production access is a one-way door.
+
+### Operating model
+
+Anthropic's trends post (21 Jan 2026) reports developers using AI in about 60% of their work but fully delegating only 0–20% of tasks. jig is designed for supervised work: the human reviews the short layer and the one-way doors, and machines check the rest. The owner's seven-step loop (outcome and checks, plan and review, small batch, machine verification, diff review, small commits, a guardrail when a failure repeats) is the order the plan and build skills follow. DORA's AI Capabilities Model (Sep 2025) lists strong version control, working in small batches and quality internal platforms among its seven capabilities. `jig doctor` checks the parts of a repo that support them, such as a one-command verify and fast tests.
+
+### Production judgment
+
+Irreversible decisions get human design: schema, partition keys, public APIs and the auth model are the one-way doors in the gate list. Safe-change patterns (feature flags, canaries, expand-and-contract migrations, rollback) are loaded when a slice changes something users run. Comprehension debt (Osmani, 14 Mar 2026) is the gap between code that exists and code anyone understands. Each finished slice therefore ends with a two- or three-line explanation in the Log. At tier 2 and up, the human gets a short "explain this change" summary to check against the diff.
+
+### Verification status of the owner's excerpts
+
+Checked against primary sources on 2026-11-25.
+
+| Claim | Status | Correction |
+|---|---|---|
+| GitClear error-masking +47% | Verified through GitClear's own text in search results and LeadDev. GitClear blocks automated fetches. | Open the page once by hand before citing it publicly |
+| CodeRabbit logic issues +75% | Verified | None |
+| CodeRabbit performance 8x | Differs | The 8x is for excessive I/O only. The report doesn't mention N+1. |
+| Replit incident | Verified (The Register) | None |
+| Check Point CVEs | Verified | The article gives patch dates, not version numbers |
+| CVE-2026-33068 and CVE-2026-40068 | Verified (OSV, NVD) | 40068 is fixed in 2.1.84 |
+| Anthropic 60% use, 0–20% delegation | Verified in the blog post | The PDF report wasn't text-extractable |
+| Gloaguen et al. | Differs | Cost +20–23%. Developer-written files +2.4% is also not significant (p = 21%). |
+| Lethal trifecta, DORA, comprehension debt, slopsquatting, Stryker, fast-check | Verified | None |
+
+## Owner decisions (2026-11-25)
+
+1. **Primary reader.** Solo first. Some plans will involve a team or more than one engineer.
+2. **Plan mode and superpowers.** Left to the reviewer. Resolved in the v2 plan: work inside plan mode, coexist with superpowers without depending on it.
+3. **Trigger breadth.** Automatic, whenever an engineering task of any size is being planned.
+4. **Autonomy.** By context, decided case by case.
+5. **Name and packaging.** Rename. Ship a plugin with whatever hooks, skills and agents the work needs, and use loupe and humanizing-writing where they help.
+
+The resulting design is in [docs/plans/jig-v2/PLAN.md](../plans/jig-v2/PLAN.md).
 
 ## Evidence that was not fully verified
 
@@ -161,3 +221,13 @@ These were seen only in secondary sources or excerpts and should be checked befo
 - Edwards & Schuster, "Ask or Assume?", arXiv 2603.26233, EMNLP 2026.
 - Horthy, "Advanced Context Engineering for Coding Agents", HumanLayer, 29 Aug 2025.
 - Adams et al., "People systematically overlook subtractive changes", Nature 2021.
+- GitClear, "The Maintainability Gap: AI Code Quality in 2026". https://gitclear.com/the_ai_code_quality_maintainability_gap
+- CodeRabbit, "State of AI vs human code generation", 17 Dec 2025. https://coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report
+- The Register, Replit and SaaStr incident, 21 Jul 2025. https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/
+- Check Point Research, CVE-2025-59536 and CVE-2026-21852, 25 Feb 2026. https://research.checkpoint.com/2026/rce-and-api-token-exfiltration-through-claude-code-project-files-cve-2025-59536/
+- NVD, CVE-2026-33068 and CVE-2026-40068. https://nvd.nist.gov/vuln/detail/CVE-2026-33068 · https://nvd.nist.gov/vuln/detail/CVE-2026-40068
+- Anthropic, "Eight trends defining how software gets built in 2026", 21 Jan 2026. https://claude.com/blog/eight-trends-defining-how-software-gets-built-in-2026
+- Willison, "The lethal trifecta for AI agents", 16 Jun 2025. https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/
+- DORA AI Capabilities Model, Sep 2025. https://dora.dev/ai/capabilities-model
+- Osmani, "Comprehension Debt", 14 Mar 2026. https://addyosmani.com/blog/comprehension-debt/
+- Spracklen et al., "We Have a Package for You!", USENIX Security 2025. https://arxiv.org/abs/2406.10279
