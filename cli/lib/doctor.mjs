@@ -1,8 +1,10 @@
 // jig doctor: report harness gaps in a repo. Reads only; never changes files.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { git, stateDir } from './git.mjs';
+import { git } from './git.mjs';
 import { pathMatches } from './hooks.mjs';
 
 const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
@@ -22,11 +24,41 @@ function walk(root, depth, pred, out = [], rel = '') {
   return out;
 }
 
-// Hash of every repo file that can run code or redirect traffic for an agent.
+// Hash of every repo file that can run code or redirect traffic for an agent:
+// everything under .claude/ (no depth limit), .mcp.json, and any repo file the
+// settings or MCP config name in a command. Files over 1 MB hash by size only.
 export function configDigest(root) {
-  const files = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', ...walk(root, 3, (n, r) => r.startsWith('.claude/hooks/'))]
-    .filter((f) => existsSync(join(root, f)));
-  return createHash('sha256').update(files.map((f) => `${f}\0${read(join(root, f))}`).join('\0')).digest('hex');
+  const files = new Set(['.mcp.json'].filter((f) => existsSync(join(root, f))));
+  const all = (rel) => {
+    let names = [];
+    try { names = readdirSync(join(root, rel)); } catch { return; }
+    for (const n of names) {
+      const r = `${rel}/${n}`;
+      let st; try { st = statSync(join(root, r)); } catch { continue; }
+      if (st.isDirectory()) all(r); else files.add(r);
+    }
+  };
+  if (existsSync(join(root, '.claude'))) all('.claude');
+  const text = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json'].map((f) => read(join(root, f)) ?? '').join('\n');
+  const absRoot = resolve(root);
+  for (const tok of text.match(/[\w@.\/${}-]+\.(?:m?js|cjs|ts|sh|py|rb|ps1|bash)\b/g) ?? []) {
+    const p = resolve(root, tok.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, '').replace(/^\.\//, ''));
+    if (p.startsWith(absRoot + sep) && existsSync(p) && statSync(p).isFile()) files.add(p.slice(absRoot.length + 1));
+  }
+  const h = createHash('sha256');
+  for (const f of [...files].sort()) {
+    const st = statSync(join(root, f));
+    h.update(`${f}\0${st.size > 1_000_000 ? `size:${st.size}` : readFileSync(join(root, f))}\0`);
+  }
+  return h.digest('hex');
+}
+
+// Acks live in the user's home, never in the repo: a repo could ship a
+// pre-written ack to silence D4.
+function ackPath(root) {
+  const dir = join(process.env.JIG_HOME ?? join(homedir(), '.config', 'jig'), 'acks');
+  mkdirSync(dir, { recursive: true });
+  return join(dir, createHash('sha256').update(realpathSync(root)).digest('hex').slice(0, 32) + '.json');
 }
 
 export function diagnose(root) {
@@ -90,8 +122,8 @@ export function diagnose(root) {
   const mcp = json(join(root, '.mcp.json'));
   if (mcp?.mcpServers) risky.push(`.mcp.json declares MCP servers: ${Object.keys(mcp.mcpServers).join(', ')}`);
   if (has('.claude/hooks')) risky.push('.claude/hooks/ contains hook scripts');
-  const acked = json(join(stateDir(root), 'doctor-ack.json'))?.digest === configDigest(root);
-  if (risky.length && acked) add('D4', 'ok', 'repo-level agent config is unchanged since you marked it reviewed (jig doctor --ack)');
+  const acked = json(ackPath(root))?.digest === configDigest(root);
+  if (risky.length && acked) add('D4', 'ok', 'repo-level agent config (everything under .claude/, .mcp.json, and scripts they name) is unchanged since you ran jig doctor --ack');
   else if (risky.length) add('D4', 'review', 'repo-level agent config that can run code or redirect traffic:\n    - ' + risky.join('\n    - '), 'Read these before trusting the repo, and keep Claude Code updated. jig never edits them. Once read, `jig doctor --ack` stops this note until they change.');
   else add('D4', 'ok', 'no repo-level hooks, MCP servers or risky settings');
 
@@ -131,7 +163,7 @@ const ICON = { ok: 'ok    ', gap: 'GAP   ', review: 'REVIEW', info: 'note  ' };
 export function doctor(root, { json: asJson = false, ack = false } = {}) {
   if (ack) {
     const d = configDigest(root);
-    writeFileSync(join(stateDir(root), 'doctor-ack.json'), JSON.stringify({ digest: d, at: new Date().toISOString() }));
+    writeFileSync(ackPath(root), JSON.stringify({ root: realpathSync(root), digest: d, at: new Date().toISOString() }));
     console.log('Marked the repo-level agent config as reviewed. jig doctor will flag it again if any of those files change.');
   }
   const F = diagnose(root);

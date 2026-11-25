@@ -3,6 +3,7 @@
 // Usage: node evals/run.mjs [--tasks a,b] [--arms none,jig,planmode,superpowers] [--runs 1] [--model m] [--budget 3] [-j 2]
 // Every run spends real money on your account. Start small.
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -11,6 +12,9 @@ import { TASKS } from './tasks/tasks.mjs';
 import { runClaude, arms, usageOf, pool } from './lib/claude.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Throwaway fixture repos are removed on exit; pass --keep to inspect them.
+const MADE = [];
+process.on('exit', () => { if (!process.argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
 const JIG = join(HERE, '..');
 const SUPERPOWERS = process.env.SUPERPOWERS_DIR ?? join(process.env.HOME, '.claude/plugins/cache/claude-plugins-official/superpowers/7.0.2');
 const flag = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i === -1 ? d : process.argv[i + 1]; };
@@ -28,6 +32,7 @@ const ALLOWED = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Skill', 'Agent', 'Tod
 
 function scaffold(task) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), `jig-eval-${task.id}-`)));
+  MADE.push(dir);
   for (const [p, body] of Object.entries(task.files)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), body); }
   const g = (...a) => execFileSync('git', ['-c', 'user.email=eval@example.com', '-c', 'user.name=eval', ...a], { cwd: dir, stdio: 'ignore' });
   g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'fixture');

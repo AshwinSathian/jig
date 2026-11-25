@@ -3,6 +3,7 @@
 // first Skill call, so a run costs one turn.
 // Usage: node evals/triggers/run.mjs [--arms jig,jig+superpowers] [--runs 1] [--model opus]
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -10,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { runClaude, arms, pool } from '../lib/claude.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Throwaway fixture repos are removed on exit; pass --keep to inspect them.
+const MADE = [];
+process.on('exit', () => { if (!process.argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
 const JIG = join(HERE, '..', '..');
 const SUPERPOWERS = process.env.SUPERPOWERS_DIR ?? join(process.env.HOME, '.claude/plugins/cache/claude-plugins-official/superpowers/7.0.2');
 const cases = JSON.parse(readFileSync(join(HERE, 'cases.json'), 'utf8'));
@@ -22,6 +26,7 @@ const ARMS = arms({ jigDir: JIG, superpowersDir: SUPERPOWERS });
 
 function scaffold() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-trig-')));
+  MADE.push(dir);
   mkdirSync(join(dir, 'src'));
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo-api', type: 'module', scripts: { test: 'node --test' } }, null, 2));
   writeFileSync(join(dir, 'src/server.js'), "import http from 'node:http';\nexport const app = http.createServer((req, res) => { res.end('ok'); });\n");

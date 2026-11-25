@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, normalize, isAbsolute } from 'node:path';
 import { parsePlan, touchPaths } from './plan.mjs';
 
 const ACTIVE = ['approved', 'building'];
@@ -9,7 +9,13 @@ const ACTIVE = ['approved', 'building'];
 export function plansDir(root) {
   try {
     const cfg = JSON.parse(readFileSync(join(root, '.jig.json'), 'utf8'));
-    if (typeof cfg.plansDir === 'string' && cfg.plansDir.trim()) return cfg.plansDir.replace(/\/+$/, '');
+    if (typeof cfg.plansDir === 'string' && cfg.plansDir.trim()) {
+      // .jig.json comes from the repo, so it may not point outside it or at a
+      // source tree: the edit hook exempts this directory from scope checks.
+      const d = normalize(cfg.plansDir.trim()).replace(/\/+$/, '');
+      if (!isAbsolute(d) && !d.split('/').includes('..') && d !== '.' && /plan/i.test(d.split('/').pop())) return d;
+      process.stderr.write(`jig: ignoring .jig.json plansDir "${cfg.plansDir}" (must be a relative folder inside the repo whose name contains "plan")\n`);
+    }
   } catch (e) {
     if (e.code !== 'ENOENT') process.stderr.write(`jig: ignoring unreadable .jig.json (${e.message})\n`);
   }
