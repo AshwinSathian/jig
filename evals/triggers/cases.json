@@ -1,0 +1,53 @@
+[
+  {
+    "id": "small-flag",
+    "prompt": "Add a --verbose flag to src/cli.js that prints each step it runs.",
+    "expect": "jig"
+  },
+  {
+    "id": "feature",
+    "prompt": "Build a CSV export endpoint for the reports API.",
+    "expect": "jig"
+  },
+  {
+    "id": "migration",
+    "prompt": "We need to migrate the user store from MongoDB to Postgres.",
+    "expect": "jig"
+  },
+  {
+    "id": "refactor",
+    "prompt": "Let's refactor authentication to use JWTs instead of sessions.",
+    "expect": "jig"
+  },
+  {
+    "id": "approach",
+    "prompt": "How should we approach adding multi-tenant support to this API?",
+    "expect": "jig"
+  },
+  {
+    "id": "new-app",
+    "prompt": "I want to build a small habit tracker web app on top of this server.",
+    "expect": "jig"
+  },
+  {
+    "id": "typo",
+    "prompt": "Fix the typo 'Teh' in README.md.",
+    "expect": "either",
+    "note": "One-word fix: a plan adds nothing, so firing or not both count."
+  },
+  {
+    "id": "debug",
+    "prompt": "The server returns 500 on /reports and I don't know why. Help me debug it.",
+    "expect": "not-jig"
+  },
+  {
+    "id": "explain",
+    "prompt": "Explain what this repository does.",
+    "expect": "not-jig"
+  },
+  {
+    "id": "review",
+    "prompt": "Review my last commit for bugs.",
+    "expect": "not-jig"
+  }
+]

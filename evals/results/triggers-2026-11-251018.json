@@ -1,0 +1,162 @@
+[
+  {
+    "id": "small-flag",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "small-flag",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "feature",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "feature",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "migration",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "migration",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "refactor",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "refactor",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "approach",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "approach",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "new-app",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "new-app",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "superpowers:brainstorming",
+    "pass": false,
+    "killed": "skill"
+  },
+  {
+    "id": "typo",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "typo",
+    "arm": "jig+superpowers",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "debug",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "debug",
+    "arm": "jig+superpowers",
+    "expect": "not-jig",
+    "first": "superpowers:systematic-debugging",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "explain",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "explain",
+    "arm": "jig+superpowers",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "review",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "review",
+    "arm": "jig+superpowers",
+    "expect": "not-jig",
+    "first": "code-review",
+    "pass": true,
+    "killed": "skill"
+  }
+]

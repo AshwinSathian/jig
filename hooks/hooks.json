@@ -1,0 +1,15 @@
+{
+  "description": "jig guardrails: plan nudge and status at session start, protected acceptance tests and out-of-scope edits, package installs, and verification before stopping.",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "startup|resume|clear|compact", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/jig.mjs\" hook session-start", "timeout": 10 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/jig.mjs\" hook pre-edit", "timeout": 10 } ] },
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/jig.mjs\" hook pre-bash", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/jig.mjs\" hook stop", "timeout": 10 } ] }
+    ]
+  }
+}

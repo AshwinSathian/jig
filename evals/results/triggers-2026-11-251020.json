@@ -1,0 +1,82 @@
+[
+  {
+    "id": "small-flag",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "small-flag",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "feature",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "feature",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "jig:plan",
+    "pass": true,
+    "killed": "skill"
+  },
+  {
+    "id": "typo",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "typo",
+    "arm": "jig",
+    "expect": "jig",
+    "first": "none",
+    "pass": false,
+    "killed": false
+  },
+  {
+    "id": "debug",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "debug",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "explain",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  },
+  {
+    "id": "explain",
+    "arm": "jig",
+    "expect": "not-jig",
+    "first": "none",
+    "pass": true,
+    "killed": false
+  }
+]

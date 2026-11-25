@@ -76,3 +76,5 @@ Checks: C4, C5
 - 2026-11-25: S0 done. Plan mode blocks project writes; hook context reaches the model with or without a decision; plugin eval has no command graders; `--setting-sources project,local --strict-mcp-config` isolates arms.
 - 2026-11-25: S1 done. Format spec, `jig new/lint/status/verify`, 35 tests including 26 single-rule mutations of good plans.
 - 2026-11-25 15:43: jig verify S1: C1 pass; C2 pass; C3 pass
+- 2026-11-25: Trigger spike (S2). jig alone missed direct build prompts ("Build a CSV export endpoint": 0/3); superpowers' SessionStart prompt made them fire. Added a one-line SessionStart nudge: misses then fired 4/4, negatives stayed quiet 4/4. superpowers:brainstorming beat jig:plan on 1 of 7 planning prompts. A one-word typo fix never fires; the case now scores either way.
+- 2026-11-25: Hooks built ahead of S3 because the nudge needed them: session-start, pre-edit (protected tests ask, out-of-scope warns once), pre-bash (installs ask), stop (asks for verify evidence; never runs repo commands). 48 tests pass.

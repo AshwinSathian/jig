@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // jig: plan, verify and guard agent-built work. No dependencies; Node 20+.
 import { relative, join, isAbsolute } from 'node:path';
+import { statSync, readdirSync, existsSync } from 'node:fs';
 import { lintFile } from './lib/lint.mjs';
 import { newPlan } from './lib/scaffold.mjs';
 import { statusSummary, findPlans, activePlans, doingSlice } from './lib/status.mjs';
@@ -36,6 +37,13 @@ function parseArgs(argv) {
   return { pos, flags };
 }
 
+// A directory argument means every PLAN.md below it (bounded depth, no node_modules).
+function expand(p, depth = 0) {
+  if (!existsSync(p) || !statSync(p).isDirectory()) return [p];
+  if (depth > 4) return [];
+  return readdirSync(p).flatMap((n) => (n === 'node_modules' || n.startsWith('.') ? [] : n === 'PLAN.md' ? [join(p, n)] : statSync(join(p, n)).isDirectory() ? expand(join(p, n), depth + 1) : []));
+}
+
 const BOOL = new Set(['json', 'fast', 'record', 'help']);
 
 async function main() {
@@ -66,7 +74,7 @@ async function main() {
     }
 
     case 'lint': {
-      const targets = pos.length ? pos.map((p) => (isAbsolute(p) ? p : join(cwd, p))) : findPlans(root);
+      const targets = pos.length ? pos.flatMap((p) => expand(isAbsolute(p) ? p : join(cwd, p))) : findPlans(root);
       if (!targets.length) { console.error('jig lint: no plans found under docs/plans/'); return 2; }
       const reports = targets.map((t) => lintFile(t, { cwd }));
       if (flags.json === 'true' || flags.json === true) { console.log(JSON.stringify(reports, null, 2)); }
