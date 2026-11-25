@@ -64,9 +64,17 @@ export function treeId(root, keep = () => true) {
     let st;
     try { st = lstatSync(abs); } catch { continue; } // deleted: its absence changes the hash
     h.update(rel).update('\0');
-    if (st.isSymbolicLink()) h.update('l').update(readlinkSync(abs));
-    else if (st.isDirectory()) h.update('d'); // a submodule
-    else h.update(st.mode & 0o111 ? 'x' : 'f').update(readFileSync(abs));
+    // Never let one file stop the hash: an unreadable file is hashed by its
+    // size and mtime, and a FIFO, socket or device is never opened (reading
+    // one can block the hook).
+    try {
+      if (st.isSymbolicLink()) h.update('l').update(readlinkSync(abs));
+      else if (st.isDirectory()) h.update('d'); // a submodule
+      else if (st.isFile()) h.update(st.mode & 0o111 ? 'x' : 'f').update(readFileSync(abs));
+      else h.update('o');
+    } catch (e) {
+      h.update(`e:${e.code}:${st.size}:${st.mtimeMs}`);
+    }
     h.update('\0');
   }
   return h.digest('hex').slice(0, 40);

@@ -2,7 +2,7 @@
 // (sed, codegen, git apply, mv) can't finish without verifying.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, appendFileSync, mkdtempSync, realpathSync, rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { writeFileSync, appendFileSync, mkdtempSync, realpathSync, rmSync, mkdirSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -130,4 +130,17 @@ test('tree: a session that started before the plan was active records its tree a
   hook('pre-bash', base(dir, { tool_input: { command: 'sed -i "" s/1/2/ src/a.js' } }));
   writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n'); // what the sed did
   assert.ok(blocks(hook('stop', base(dir))));
+});
+
+test('tree: an unreadable untracked file neither crashes the hooks nor opens a protected test', () => {
+  const { dir } = planRepo();
+  writeFileSync(join(dir, 'src/secret.txt'), 'x');
+  chmodSync(join(dir, 'src/secret.txt'), 0o000);
+  try {
+    const out = hook('pre-edit', base(dir, { tool_input: { file_path: join(dir, 'test/a.accept.test.js') } }));
+    assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+    hook('session-start', base(dir));
+    writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n');
+    assert.ok(blocks(hook('stop', base(dir))));
+  } finally { chmodSync(join(dir, 'src/secret.txt'), 0o644); }
 });

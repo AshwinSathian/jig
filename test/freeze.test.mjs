@@ -137,3 +137,9 @@ test('freeze: an edit that takes the plan out of approved or building asks', () 
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /draft/);
   assert.equal(hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: planPath, old_string: 'Status: building', new_string: 'Status: approved' } })), null);
 });
+
+test('freeze: an Edit to an active PLAN.md that cannot be simulated asks', () => {
+  const { dir, planPath } = repo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: planPath, old_string: 'Status: bulding', new_string: 'Status: draft' } }));
+  assert.ok(asks(out));
+});

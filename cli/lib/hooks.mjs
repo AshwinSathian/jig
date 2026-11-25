@@ -106,7 +106,6 @@ export function preEdit(input) {
 
   const plans = activePlans(root);
   if (!plans.length) return null;
-  keepStartTree(root, st);
   for (const { path } of plans) {
     const checks = loadChecks(path);
     // Fail closed on the one guard that protects files: if checks.json can't
@@ -124,12 +123,14 @@ export function preEdit(input) {
     if (sameFile(abs, path)) {
       const after = applyEdit(readFileSync(path, 'utf8'), input.tool_name, input.tool_input ?? {});
       const to = after === null ? null : parsePlan(after).header?.status?.toLowerCase();
-      if (after !== null && !['approved', 'building'].includes(to)) {
+      if (after === null || !['approved', 'building'].includes(to)) {
         return {
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'ask',
-            permissionDecisionReason: `jig: this edit sets ${rel} to Status: ${to ?? '(none)'}, which takes it out of the checks freeze and the slice hooks. Changing a plan's status is the owner's call.`,
+            permissionDecisionReason: after === null
+              ? `jig: this edit to ${rel} can't be applied to the current file, so jig can't tell whether it changes the plan's status. Re-read the file and retry, or approve if the edit is right.`
+              : `jig: this edit sets ${rel} to Status: ${to ?? '(none)'}, which takes it out of the checks freeze and the slice hooks. Changing a plan's status is the owner's call.`,
           },
         };
       }
@@ -158,6 +159,8 @@ export function preEdit(input) {
       }
     }
   }
+  // After the protection checks, so a problem here can't skip them.
+  keepStartTree(root, st);
   if (rel.startsWith(`${plansDir(root)}/`) || rel.startsWith('docs/plans/')) return null;
   const doing = plans.map(({ path, plan }) => ({ path, slice: doingSlice(plan) })).find((x) => x.slice);
   if (!doing) return null;
