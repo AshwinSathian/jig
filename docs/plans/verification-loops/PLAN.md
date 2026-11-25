@@ -1,0 +1,109 @@
+# Verification loops
+
+Status: approved · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
+Now: approved. Next: S1, freeze checks.json.
+
+## Outcome
+jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
+Done when:
+- `jig verify --plan docs/plans/verification-loops/PLAN.md` passes every check (C1 to C25, R2 to R11)
+- `gh pr checks` shows Test 20/22/24 and Secret scan passing on the 2.1.0 and 2.2.0 PRs
+- `npm view jig-plan version` prints 2.2.0 after the owner's release, and `npm audit signatures` passes in a scratch dir
+
+## Decisions
+- The checks.json freeze compares by check id: new ids and new `protects` entries pass silently; a removed id, a removed `protects` entry, or any change to `cmd`, `expect`, `kind`, `timeout_s`, `fast` or `slice` asks. An edit whose result doesn't parse asks. Reason: build step 2 adds checks every slice, so a blanket ask would fire constantly.
+- `jig verify` stores a hash of each check's frozen fields and its sorted `protects` list. It names any check whose hash changed, or that lost a `protects` entry, compared with the plan's previous record. When there's no earlier record, it compares with `git show HEAD:<checks.json>` and says which one it used. Reason: Bash edits skip the hook. Reporting only removals keeps added protected files quiet. Rejected: the plan's Baseline commit, because it predates the checks, and the approval commit, because nothing records it.
+- The Stop hook compares **tree ids only**. `HEAD` is recorded for the trailer but not compared. Reason: the build skill commits after verifying, so comparing `HEAD` would make every committed slice stale.
+- The tree id comes from a temporary index in `.git/jig`, named per process (pid plus random) and deleted in `finally`: `git add -A -- . ':(exclude)<plansDir>'`, then `git write-tree`. Git runs through `git.mjs`, which gains an `env` option. When git fails and the tree comes back null, the hook falls back to the `editedAt` logic. The tree is computed after the checks run, so build output a check writes doesn't make its own record stale. Reason: on chattermeter this took 364 ms cold and 93 ms warm, the same tree as a copied-index variant, so the simpler empty index stays. A shared index would collide on `index.lock` across sessions.
+- SessionStart stores the tree id only if the session has none yet. Reason: its matcher includes `resume` and `compact`, and overwriting the id there would forget changes made earlier in the session.
+- The "can't fail" rule (`|| true`, `; exit 0`, `|| :`) gets its own id, J23, as a lint error, and doesn't extend J17. Reason: J17 comes from `validateChecks`, which the edit hook also calls and fails closed on, so every edit in the repo would ask. Retries and sleeps are J22, a warning.
+- Observe mode ships in 2.1.0. `JIG_GATES=observe` covers every gate, and `JIG_GATES=observe:freeze,tree,rounds` covers only the named ones (gate names: `protects`, `install`, `freeze`, `tree`, `rounds`). The guard skill's observe-first guidance stays in 2.2.0. Reason: the 2.1.0 dogfood runs the new gates in observe mode, so the code has to exist by then, and naming gates lets one new gate start in observe mode while the old ones keep enforcing. This moves part of row 9 into the first milestone.
+- A `rules` gate asks before edits to REVIEW.md, CLAUDE.md, `.claude/**` and `.github/workflows/**`. It ships observed by default in 2.1.0, whatever `JIG_GATES` says, until the owner decides from the observe log whether it enforces. Reason: owner's answer, observe first.
+- The dogfood drives the working-tree hooks with scripted hook payloads on the chattermeter clone (an Edit that loosens a check, a Bash-only change, repeated failures, rule-file edits), not headless Claude sessions. Reason: the owner declined that API spend. The observe log then measures false positives on those payloads only, not on a real session.
+- Every slice has its own `npm test` regression check (C2, R2 to R11), and a new lint warning, J24, flags a slice whose `Checks:` line names another slice's check. Reason: `jig verify` selects checks by `slice`, so a check that S1 owns never runs in S2.
+- Severity rename (blocker/major/minor to Important/Nit/Pre-existing). Reason: the review's source. The reviewer eval grades topics by regex and doesn't parse severities, so its graders don't change. S8 checks that.
+- Dogfood runs on a `git clone --local` of chattermeter in the scratchpad. Reason: hooks write `.git/jig` state and the fingerprint writes blobs, and the owner asked for chattermeter to stay read-only. A clean checkout gives the same tree (it had 0 changed files at survey).
+- [one-way] Publish 2.1.0 and 2.2.0 to npm. Reason: published versions can't be reused. The owner merges and releases; I open the PRs. Decided: owner 2026-11-25
+
+## Out of scope
+- `/goal`, Claude Approvals, PR Steward, `/ship`, moving acks, chaos loops and multi-agent voting, which the review checked and left out.
+- Closing jig-v2 S5. It stays `[doing]`, so every `jig verify` here passes `--plan`.
+
+## Questions
+- None. Answered 2026-11-25: rule files get an observe-first gate, and the dogfood skips API spend.
+
+## Assumptions
+- PreToolUse input shapes: Edit has `old_string`, `new_string` and `replace_all`; Write has `content`; MultiEdit has `edits[]`. An Edit whose `old_string` isn't in the file stays silent, because the tool fails on its own.
+- Rounds count per plan and per check id, from that check's last passing record. Each new failing record blocks once, and from round 3 on the reason says to stop and report to the owner.
+- Evidence written before 2.1.0 has no tree id. The hook treats it as stale and says so.
+- Outside git, the Stop hook keeps the `editedAt` timestamp logic.
+- Skill and agent text checks are `grep` presence checks. They show the rule is written down, not that a model follows it. S10 is the only behavioural test of the reviewer.
+- I skip a `mutation` check on the freeze diff. Each frozen field gets its own test case, so removing any one comparison fails a test.
+
+## Slices
+
+### S1: Freeze checks.json [todo]
+Goal: an Edit, Write or MultiEdit that loosens an existing check asks while the plan is approved or building; additions are silent; `jig verify` records per-check hashes and names changed checks in its output and Log line. First test reproduces gap 1 on the current code.
+Touch: `cli/lib/hooks.mjs`, `cli/lib/checks.mjs`, `cli/lib/verify.mjs`, `cli/jig.mjs`, `test/freeze.test.mjs (new)`, `test/helpers.mjs (new)`, `test/hooks.test.mjs`
+Note: `test/helpers.mjs` takes `hook()` and `planRepo()` out of `hooks.test.mjs`. `tempRepo` stays in `verify.test.mjs`.
+Checks: C1, C2
+- Risk: real Edit payloads differ from the assumed shape. Detect: a `claude --plugin-dir .` run in an isolated config dir that loosens a check gets no ask. Fallback: ask on any checks.json edit whose result can't be computed.
+
+### S2: Evidence fingerprint [todo]
+Goal: evidence records carry `head` and `tree`; the Stop hook blocks when the tree differs from both the session-start tree and the last evidence, including when code changed only through Bash. First test reproduces gap 2.
+Touch: `cli/lib/git.mjs`, `cli/lib/verify.mjs`, `cli/lib/hooks.mjs`, `test/fingerprint.test.mjs (new)`, `evals/hook-timing.mjs (new)`
+Checks: C3, C4, R2
+- Risk: `git add -A` is slow on a repo with large untracked files. Detect: `evals/hook-timing.mjs` exits 1 when p50 reaches 1000 ms (C4); S6 and S11 run it with `JIG_TIMING_REPO` set to the chattermeter clone. Fallback: seed the temp index from a copy of `.git/index` (measured at 112 ms), and fall back to `editedAt` if it is still too slow.
+- Risk: an empty index re-runs clean filters (git-lfs and other `.gitattributes` drivers) on every tracked file, and writes a blob for each untracked file. Detect: C4 on a fixture repo with a `filter=` attribute. Fallback: when `.gitattributes` sets a filter, seed from the real index so that only changed files go through the filter.
+
+### S3: Three rounds [todo]
+Goal: the Stop hook blocks once per new failing record, and at round 3 says to stop and report the three attempts; build step 4 says the same. First test reproduces gap 3.
+Touch: `cli/lib/hooks.mjs`, `skills/build/SKILL.md`, `test/rounds.test.mjs (new)`
+Checks: C5, C6, R3
+
+### S4: Flaky checks and Verified trailer [todo]
+Goal: lint warns on retry and sleep in a check (J22), errors on a check that can't fail (J23), and warns on a slice that lists another slice's check (J24); `jig verify --record` prints a `Verified:` line; build step 5, failure-modes.md and team.md carry the rules.
+Touch: `cli/lib/lint.mjs`, `cli/lib/verify.mjs`, `cli/jig.mjs`, `test/lint.test.mjs`, `test/verify.test.mjs`, `skills/build/SKILL.md`, `references/failure-modes.md`, `references/team.md`, `references/plan-format.md`
+Checks: C7, C8, C9, R4
+
+### S5: Observe mode [todo]
+Goal: with `JIG_GATES=observe`, every ask or block is appended to `.git/jig/observe.jsonl` and the hook prints nothing. With `observe:<gates>`, only the named gates are observed, and the rest still ask. Context-only output is unchanged. The `rules` gate exists and is always observed.
+Touch: `cli/lib/hooks.mjs`, `test/observe.test.mjs (new)`, `evals/dogfood-hooks.mjs (new)`
+Checks: C10, R5
+
+### S6: Dogfood and release 2.1.0 [todo]
+Goal: doctor, lint and the hooks in observe mode run on the chattermeter clone; a Log line starting "observe-mode dogfood 2.1.0" gives the observe event count, false positives and hook p50; versions are bumped, the CHANGELOG and README are updated where behaviour changed, and the PR is open with CI green.
+Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`
+Checks: C11, C12, C24, R6
+
+### S7: Running the change [todo]
+Goal: `e2e` and `differential` are check kinds; doctor reports D7 (with the level chosen from the jig and chattermeter runs); fundamentals.md has the four property shapes and the differential rules; the plan-mode reviewer asks for one real-system check per user-visible slice.
+Touch: `cli/lib/checks.mjs`, `cli/lib/doctor.mjs`, `test/doctor.test.mjs`, `references/fundamentals.md`, `references/plan-format.md`, `agents/jig-reviewer.md`, `skills/guard/SKILL.md`
+Checks: C13, C14, C15, R7
+
+### S8: Reviewer rounds [todo]
+Goal: jig-reviewer takes earlier findings and a last-reviewed commit, reviews only the new diff after round 1, never repeats a finding, flags the class of a bug, returns `rethink` after round 3, and uses Important / Nit / Pre-existing; build step 4 passes it what it needs.
+Touch: `agents/jig-reviewer.md`, `skills/build/SKILL.md`, `evals/reviewer/run.mjs`
+Checks: C16, C17, R8
+
+### S9: Diff-triggered checklist and observe-first [todo]
+Goal: diff mode applies `When: · Check: · Source:` entries from `git show <Baseline>:REVIEW.md`; the guard skill proposes entries with the three-part bar, leaves the commit to the owner, adds pruning, and recommends observe mode for new gates.
+Touch: `agents/jig-reviewer.md`, `skills/guard/SKILL.md`, `references/mechanisms.md`
+Checks: C18, R9
+
+### S10: Reviewer eval with controls [todo]
+Goal: grading moves to `evals/reviewer/grade.mjs`, with recall, false positives on clean controls and rounds-to-pass; the eval has separate tuning and test cases and self-review and fresh-review arms; the dry-run cost is reported, the owner agrees to the full run, and the result goes into REPORT.md.
+Touch: `evals/reviewer/run.mjs`, `evals/reviewer/grade.mjs (new)`, `evals/reviewer/cases/ (new)`, `test/reviewer-grade.test.mjs (new)`, `evals/results/REPORT.md`
+Checks: C19, C20, R10
+- Risk: the self-review arm isn't really self-review, because a pasted plan isn't the session's own work. Detect: the arm's transcript shows it treating the plan as someone else's. Fallback: the session writes the plan from the request in the same run, reviewed against defects that appear in its own output, and the report labels the arm.
+
+### S11: Dogfood and release 2.2.0 [todo]
+Goal: same as S6 for 2.2.0 (Log line "observe-mode dogfood 2.2.0"), plus D7 on the chattermeter clone and on jig.
+Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`
+Checks: C21, C22, C23, C25, R11
+
+## Log
+- 2026-11-25: Plan started at 9bffbb5.
+- 2026-11-25: Survey. 69 tests pass in 4.0 s. A fingerprint spike on chattermeter (2,805 tracked files, clean) took 364 ms cold and 93 ms warm with an empty temp index, and 112 to 118 ms with a copied index, giving the same tree. Changes to the design brief, from the code: tree-only comparison (commits move HEAD), tree computed after the checks run, session-start tree stored once, J23 split from J17, observe mode moved to 2.1.0, and the reviewer eval graders don't parse severities.
+- 2026-11-25: jig-reviewer plan review: fix first, 10 findings, all applied. Each slice gets its own regression check, and J24 is added. The verify freeze falls back to HEAD and tracks `protects` removals. Observe mode can name gates. C4 enforces 1000 ms. The temp index is per process, and a null tree falls back to `editedAt`. Added a filter risk, version checks in C11 and C21, and dogfood Log checks C24 and C25. `helpers.mjs` holds only the hook helpers.
+- 2026-11-25: Owner approved the plan. Answers: the rule-file gate goes observe-first (the `rules` gate, always observed in 2.1.0), and the observe-mode dogfood uses no headless sessions, so it drives the hooks with scripted payloads. The reviewer eval still needs the owner's yes after its dry run.
