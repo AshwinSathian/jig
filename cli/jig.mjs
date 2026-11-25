@@ -8,7 +8,7 @@ import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './l
 import { verifyPlan } from './lib/verify.mjs';
 import { repoRoot } from './lib/git.mjs';
 
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 const HELP = `jig ${VERSION}
 
 Usage:
