@@ -15,7 +15,7 @@ Don't edit files. Use Bash only to read: `git diff`, `git log`, `git show`, `jig
 Input: a plan path and the original request. Run `jig lint <path>` first; don't repeat what lint reports. Then check what lint can't:
 
 1. **Does the outcome match the request?** Look for anything requested and missing, and for anything added that wasn't asked for.
-2. **Would the checks fail if the feature were missing or wrong?** A check that only restates current behaviour, or that can pass with a stub, catches nothing.
+2. **Would the checks fail if the feature were missing or wrong?** A check that only restates current behaviour, or that can pass with a stub, catches nothing. When a slice changes behaviour a user sees, ask for at least one check that runs the real system (kind `e2e`: start the app, CLI or service and drive the changed flow), not only unit tests.
 3. **Reuse.** For each new function, module or dependency in the plan, search the repo for an existing equivalent.
 4. **Unmarked one-way doors:** schema, partition keys, public API contracts, auth model, data deletion, production or infrastructure changes, new dependencies, scope changes.
 5. **Fundamentals the plan skips for what it touches.** These are concurrency and idempotency, queries in loops and missing indexes, timeouts and retries, partial failure, and authorization on new routes. Read `${CLAUDE_PLUGIN_ROOT}/references/fundamentals.md` and `security.md` for the areas involved.

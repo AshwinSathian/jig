@@ -34,6 +34,16 @@ Read only the sections for areas the slice touches. Each question either has an 
 - Can a retry storm happen: clients retrying in lockstep, or retries multiplying through layers?
 - Is ordering assumed anywhere it isn't guaranteed?
 
+## Testing and verification
+- Does a check run the change for real? When a slice changes what a user sees, one `e2e` check starts the app, CLI or service and drives the changed flow. Running the change catches what tests of its parts miss.
+- Does a rule have a property, not only examples? The four shapes that cover most rules:
+  - **round-trip:** `decode(encode(x)) == x` (serializers, parsers, migrations up then down)
+  - **invariant:** something that holds after every operation (a balance never negative, a list stays sorted, counts add up)
+  - **idempotency:** doing it twice equals doing it once (retries, webhooks, `PUT`, migrations)
+  - **equivalence:** the new code gives the same result as a simpler or older one (an optimisation, a rewrite)
+- Is this a rewrite or a migration that must keep behaviour? Use a `differential` check: run old and new on the same inputs and compare. Normalise the noise first (timestamps, ids, ordering, whitespace), and keep a checked-in list of approved differences, so a new difference fails and an approved one doesn't.
+- Is a test flaky? Find the cause (shared state, time, ordering, a race). Don't retry, sleep or skip it. If you can't find the cause, delete the test and log why.
+
 ## Software design
 - Does the change deepen an existing module or add a shallow one: a wrapper that passes calls through, or an interface with one implementation?
 - Agents optimize locally. Does the change respect the boundaries and invariants the repo already has? Look for ADRs and module owners.

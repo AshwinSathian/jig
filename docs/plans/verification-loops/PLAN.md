@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: 2.1.0 is in PR #4 with CI green, waiting for the owner to merge and release. Next: S7, branched from main after the merge, then `npm view jig-plan version` and `npm audit signatures`. S1 to S6 done.
+Now: S8 reviewer rounds next, on verification-loops-2.2.0. Release v2.1.0 not yet created. S1 to S7 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -75,9 +75,9 @@ Goal: doctor, lint and the hooks in observe mode run on the chattermeter clone; 
 Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`, `evals/dogfood-hooks.mjs (new)`
 Checks: C11, C12, C24, R6
 
-### S7: Running the change [todo]
+### S7: Running the change [done]
 Goal: `e2e` and `differential` are check kinds; doctor reports D7 (with the level chosen from the jig and chattermeter runs); fundamentals.md has the four property shapes and the differential rules; the plan-mode reviewer asks for one real-system check per user-visible slice.
-Touch: `cli/lib/checks.mjs`, `cli/lib/doctor.mjs`, `test/doctor.test.mjs`, `references/fundamentals.md`, `references/plan-format.md`, `agents/jig-reviewer.md`, `skills/guard/SKILL.md`
+Touch: `cli/lib/checks.mjs`, `cli/lib/doctor.mjs`, `test/doctor.test.mjs`, `references/fundamentals.md`, `references/plan-format.md`, `agents/jig-reviewer.md`, `skills/guard/SKILL.md`, `skills/plan/SKILL.md`
 Checks: C13, C14, C15, R7
 
 ### S8: Reviewer rounds [todo]
@@ -140,3 +140,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: Third security review of the switches ask suggested more escape forms (YAML and others). No change, because only `.claude/settings*.json` can set a hook's environment, and that is JSON, which the hook decodes with `JSON.parse` before matching. Escapes in workflow YAML or CLAUDE.md can't reach the hook's env, and Bash can bypass every edit hook anyway.
 - 2026-11-25: All 18 checks for 2.1.0 pass together (C1 to C12, C24, R2 to R6). The release PR is next. S6 closes when CI is green.
 - 2026-11-25: S6 done. PR #4 (verification-loops-2.1.0) is open, and CI passed Test 20, 22 and 24 and Secret scan. The owner merges and creates the v2.1.0 release, and publish.yml publishes it. 2.2.0 (S7 to S11) starts from main after the merge, so the two PRs don't stack.
+- 2026-11-25 21:10: jig verify S7: C13 pass; C14 pass; C15 pass; R7 pass
+- 2026-11-25: S7 done. Three new D7 tests failed first. D7 is ok when a verify skill, an e2e runner (in any package.json up to two levels down) or an e2e script exists. It's a gap for an app (UI or server framework dependencies) with none of these, and a note for a CLI or library. Decided from the two runs: chattermeter is ok (`@playwright/test`, script `e2e`), and jig gets the note. `review` was rejected for the library case because the existing "well-harnessed repo: no gaps" test counts `review` as an item to look at. `e2e` and `differential` are check kinds. fundamentals.md gains a Testing section with the four property shapes and the differential rules. The plan skill and plan-mode reviewer ask for one `e2e` check per user-visible slice. `skills/plan/SKILL.md` was added to Touch for that line.

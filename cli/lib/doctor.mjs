@@ -157,6 +157,23 @@ export function diagnose(root) {
       else add('D6', 'ok', 'lockfile matches package.json');
     } else if (locks.length) add('D6', 'ok', `lockfile present (${locks.join(', ')})`);
   }
+  // D7: a way to run the change, not only test it. A verify skill, an e2e
+  // runner in any package.json up to two levels down, or an e2e script.
+  // Apps (UI or server frameworks) get a gap; a CLI or library gets a note.
+  if (pkg) {
+    const pkgs = [pkg, ...walk(root, 2, (n, r) => n === 'package.json' && r !== 'package.json').map((r) => json(join(root, r))).filter(Boolean)];
+    const deps = new Set(pkgs.flatMap((p) => Object.keys({ ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) })));
+    const scripts = pkgs.flatMap((p) => Object.entries(p.scripts ?? {})).map(([k, v]) => `${k} ${v}`);
+    const RUNNERS = ['@playwright/test', 'playwright', 'cypress', 'detox', 'maestro', 'webdriverio', '@wdio/cli'];
+    const runner = RUNNERS.find((r) => deps.has(r));
+    const script = scripts.find((s) => /\b(e2e|playwright|cypress|detox|maestro)\b/.test(s));
+    const skill = walk(root, 3, (n, r) => n === 'SKILL.md' && /^\.claude\/skills\/verify[^/]*\/SKILL\.md$/.test(r))[0];
+    const APPS = /^(react|react-dom|next|vue|nuxt|svelte|@sveltejs\/kit|@angular\/core|solid-js|astro|electron|react-native|expo|express|fastify|koa|hono|@nestjs\/core|@remix-run\/node)$/;
+    const isApp = [...deps].some((d) => APPS.test(d));
+    if (runner || script || skill) add('D7', 'ok', `a way to run the change end to end: ${[runner && `${runner} installed`, script && `script "${script.split(' ')[0]}"`, skill].filter(Boolean).join(', ')}`);
+    else if (isApp) add('D7', 'gap', 'no way to run the app end to end: no .claude/skills/verify*/SKILL.md, no e2e runner (Playwright, Cypress, Detox, Maestro) and no e2e script', 'Add a verify skill that starts the app and drives the changed flow, or an e2e runner. Tests alone miss what running the change shows.');
+    else add('D7', 'info', 'no e2e runner or verify skill; fine for a CLI or library if a check runs the real command', 'Give user-visible slices one check that runs the built CLI or public API, not only unit tests.');
+  }
   return F;
 }
 

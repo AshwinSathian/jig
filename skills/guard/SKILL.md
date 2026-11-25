@@ -46,6 +46,7 @@ Add a Log line to the active plan naming the failure and the guard.
 - whether `.claude/settings.json` and `.mcp.json` need reading before you trust the repo
 - for a secret scanner in CI
 - for lockfile drift
+- for a way to run the change end to end: a `.claude/skills/verify*/SKILL.md`, an e2e runner or an e2e script (D7; a gap for apps, a note for a CLI or library)
 
 Run it, then turn each gap the owner cares about into a slice or a guard. Treat a repo you didn't write as untrusted: read its `.claude/` and `.mcp.json` before running an agent in it.
 

@@ -57,3 +57,27 @@ test('doctor never writes to the repo', () => {
   diagnose(dir);
   assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), before);
 });
+
+// D7: a way to run the change end to end. Apps get a gap, CLIs and libraries a note.
+const d7 = (pkg, files = {}) => {
+  const { dir } = tempRepo();
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg));
+  for (const [p, body] of Object.entries(files)) { mkdirSync(join(dir, p, '..'), { recursive: true }); writeFileSync(join(dir, p), body); }
+  return levelOf(diagnose(dir), 'D7');
+};
+
+test('D7: an app with no e2e runner, script or verify skill is a gap', () => {
+  assert.deepEqual(d7({ name: 'web', dependencies: { react: '19' } }), ['gap']);
+  assert.deepEqual(d7({ name: 'api', dependencies: { express: '5' } }), ['gap']);
+});
+
+test('D7: a runner, an e2e script, a verify skill or a workspace runner is ok', () => {
+  assert.deepEqual(d7({ name: 'web', dependencies: { react: '19' }, devDependencies: { '@playwright/test': '1' } }), ['ok']);
+  assert.deepEqual(d7({ name: 'web', dependencies: { react: '19' }, scripts: { 'test:e2e': 'cypress run' } }), ['ok']);
+  assert.deepEqual(d7({ name: 'web', dependencies: { react: '19' } }, { '.claude/skills/verify-app/SKILL.md': '---\nname: verify-app\n---\n' }), ['ok']);
+  assert.deepEqual(d7({ name: 'mono', private: true }, { 'apps/web/package.json': JSON.stringify({ dependencies: { next: '16', '@playwright/test': '1' } }) }), ['ok']);
+});
+
+test('D7: a CLI or library with no e2e gets a note, not a gap', () => {
+  assert.deepEqual(d7({ name: 'tool', bin: { tool: 'cli.mjs' } }), ['info']);
+});
