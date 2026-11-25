@@ -136,8 +136,16 @@ export function preEdit(input) {
   }
   const out = guardEdit(input);
   if (out?.gate || !rel || !isRuleFile(rel)) return out;
-  // Observe-only until the owner decides from the log, so log here and keep
-  // any scope warning.
+  // CI workflows run with the repo's secrets and are rarely part of normal
+  // work, so an edit asks (JIG_GATES=observe:rules turns it into a log entry).
+  // CLAUDE.md, REVIEW.md and .claude/ are only logged: CLAUDE.md edits are
+  // usually legitimate, and Claude Code already prompts for .claude/ writes.
+  if (rel.toLowerCase().startsWith('.github/workflows/')) {
+    const a = ask('rules', `jig: ${rel} is a CI workflow. It runs in CI with the repo's secrets, so a person should read this change.`);
+    const ctx = out?.hookSpecificOutput?.additionalContext;
+    if (ctx) a.hookSpecificOutput.additionalContext = ctx;
+    return a;
+  }
   observe(input, 'pre-edit', 'rules', ask('rules', `jig: ${rel} is a rule file (it tells agents or reviewers what to do). A person should read changes to it.`));
   return out;
 }
@@ -323,7 +331,8 @@ const HANDLERS = { 'session-start': sessionStart, 'pre-edit': preEdit, 'pre-bash
 // JIG_GATES=observe logs every ask and block to .git/jig/observe.jsonl and
 // prints nothing; observe:<gate>,<gate> does that for the named gates only.
 // Use it to count false positives before a gate enforces. Gates: protects,
-// freeze, install, tree, rounds, and rules (observe-only for now).
+// freeze, install, tree, rounds, and rules (asks for CI workflows, logs the
+// other rule files).
 function observed(gate) {
   const v = (process.env.JIG_GATES ?? '').trim();
   if (v === 'observe') return true;

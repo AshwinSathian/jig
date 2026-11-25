@@ -50,13 +50,28 @@ test('observe: context-only output is unchanged', () => {
   assert.deepEqual(log(dir), []);
 });
 
-test('rules gate: rule-file edits are logged, not asked, even with no plan and no JIG_GATES', () => {
+// Spec changed 2026-11-25 (open-items plan): workflows now ask; the other rule files stay logged.
+test('rules gate: CLAUDE.md, REVIEW.md and .claude/ edits are logged, not asked, even with no plan and no JIG_GATES', () => {
   const { dir } = tempRepo();
-  for (const f of ['CLAUDE.md', 'REVIEW.md', '.claude/settings.json', '.github/workflows/ci.yml']) {
+  for (const f of ['CLAUDE.md', 'REVIEW.md', '.claude/settings.json']) {
     assert.equal(hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, f), content: 'x' } })), null, f);
   }
   assert.equal(hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'src/x.js'), content: 'x' } })), null);
-  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.file}`), ['rules CLAUDE.md', 'rules REVIEW.md', 'rules .claude/settings.json', 'rules .github/workflows/ci.yml']);
+  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.file}`), ['rules CLAUDE.md', 'rules REVIEW.md', 'rules .claude/settings.json']);
+});
+
+test('rules gate: a workflow edit asks, keeps any scope warning, and observe:rules turns it into a log entry', () => {
+  const { dir } = planRepo();
+  const wf = (env) => hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/ci.yml'), content: 'on: push\n' } }), env);
+  const out = wf();
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /\.github\/workflows\/ci\.yml/);
+  assert.match(out.hookSpecificOutput.additionalContext ?? '', /outside S1's Touch list/);
+  assert.deepEqual(log(dir), [], 'an enforced ask is not an observe entry');
+  assert.equal(wf({ JIG_GATES: 'observe:rules' }), null);
+  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.decision} ${e.file}`), ['rules ask .github/workflows/ci.yml']);
+  const nested = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'docs/.github/workflows/x.yml'), content: 'x' } }));
+  assert.equal(nested?.hookSpecificOutput?.permissionDecision, undefined, 'only the root workflows folder asks');
 });
 
 test('rules gate: nested rule files count, and a scope warning survives the log entry', () => {

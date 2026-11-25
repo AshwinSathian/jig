@@ -84,6 +84,11 @@ for (const [rule, base, mutate, checks, level = 'error'] of MUTATIONS) {
   });
 }
 
+test('J24 skips done slices: a finished slice never runs its checks again', () => {
+  const doneListsOther = full.replace('### S2: Export button [doing]', '### S2: Export button [done]').replace('Checks: C3, C4', 'Checks: C3, C4, C1');
+  assert.deepEqual(lint(doneListsOther, fullChecks).filter((p) => p.rule === 'J24'), []);
+});
+
 test('the good full plan, and checks that can still fail, raise no J22, J23 or J24', () => {
   assert.deepEqual(lint(full, fullChecks).filter((p) => ['J22', 'J23', 'J24'].includes(p.rule)), []);
   for (const cmd of [

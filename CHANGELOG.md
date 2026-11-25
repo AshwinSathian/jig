@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **CI workflow edits ask.** The `rules` gate now asks before an edit under `.github/workflows/`, because a workflow runs in CI with the repo's secrets. `JIG_GATES=observe:rules` turns that back into a log entry. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` are still only logged, since Claude Code already prompts for `.claude/` writes.
+- `jig lint` no longer raises J24 on `[done]` slices. A finished slice never runs its checks again, so the warning only helped going forward.
+
 ## 2.2.0 (2026-11-25)
 
 The rest of the verification review (rows 6 to 10).
