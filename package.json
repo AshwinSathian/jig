@@ -1,6 +1,6 @@
 {
   "name": "jig-plan",
-  "version": "2.0.0-dev",
+  "version": "2.0.0",
   "description": "Plan, verify and guard work done by coding agents: short reviewable plans, executable acceptance checks, and hooks that stop false completion claims.",
   "type": "module",
   "bin": { "jig": "cli/jig.mjs" },

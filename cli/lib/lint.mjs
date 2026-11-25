@@ -102,6 +102,17 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
     err('J10', 0, 'full-tier plans need a checks.json beside PLAN.md');
   }
   const knownIds = new Set((checksData?.checks ?? []).map((c) => c.id));
+  // J21: an acceptance check that runs a whole suite with no filter passes
+  // before the new behaviour exists, so it can't show the slice is done.
+  const FILTER = /(--grep|--testPathPattern|--testNamePattern|--test-name-pattern|\s-t\s|\s-k\s|::|--filter|--project|\.(spec|test)\.[cm]?[jt]sx?\b|test_[\w]+\.py|_test\.go\b)/;
+  for (const c of checksData?.checks ?? []) {
+    if (c.kind !== 'acceptance' || typeof c.cmd !== 'string') continue;
+    const names = (c.protects ?? []).map((p) => p.split('/').pop().replace(/\.[^.]+$/, '').replace(/\.(spec|test)$/, ''));
+    const RUNNER = /\b((npm|pnpm|yarn|bun)( run)? test\b|nx (run [\w@/.-]+:test|test|run-many -t test|affected -t test)\b|vitest\b|jest\b|mocha\b|pytest\b|go test\b|cargo test\b|node --test\s*$)/;
+    if (RUNNER.test(c.cmd) && !FILTER.test(` ${c.cmd} `) && !names.some((n) => n && c.cmd.includes(n))) {
+      warn('J21', 0, `acceptance check ${c.id} runs \`${c.cmd}\` with no filter for its own tests, so it can pass before the behaviour exists; point it at the new test file or name`);
+    }
+  }
   const slicesSec = section(plan, 'Slices');
   if (slicesSec && !plan.slices.length) err('J08', slicesSec.start, 'Slices section has no "### S<n>: <title> [state]" headings');
   const doing = [];

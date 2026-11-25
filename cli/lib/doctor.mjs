@@ -1,6 +1,9 @@
 // jig doctor: report harness gaps in a repo. Reads only; never changes files.
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { git, stateDir } from './git.mjs';
+import { pathMatches } from './hooks.mjs';
 
 const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
@@ -19,6 +22,13 @@ function walk(root, depth, pred, out = [], rel = '') {
   return out;
 }
 
+// Hash of every repo file that can run code or redirect traffic for an agent.
+export function configDigest(root) {
+  const files = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', ...walk(root, 3, (n, r) => r.startsWith('.claude/hooks/'))]
+    .filter((f) => existsSync(join(root, f)));
+  return createHash('sha256').update(files.map((f) => `${f}\0${read(join(root, f))}`).join('\0')).digest('hex');
+}
+
 export function diagnose(root) {
   const F = [];
   const add = (id, level, msg, fix = null) => F.push({ id, level, msg, fix });
@@ -27,9 +37,12 @@ export function diagnose(root) {
   const isJs = Boolean(pkg);
   const isPy = has('pyproject.toml') || has('setup.py') || has('requirements.txt');
 
-  // D1: one-command verify
+  // D1: one-command verify, named with the repo's own package manager
+  const pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb') || has('bun.lock') ? 'bun' : 'npm';
+  const run = (script) => (pm === 'npm' && script !== 'test' ? `npm run ${script}` : `${pm} ${script}`);
   const verify = [];
-  if (pkg?.scripts?.test && !/no test specified/.test(pkg.scripts.test)) verify.push('npm test');
+  for (const sc of ['verify', 'check']) if (pkg?.scripts?.[sc]) verify.push(run(sc));
+  if (pkg?.scripts?.test && !/no test specified/.test(pkg.scripts.test)) verify.push(run('test'));
   if (/^test:/m.test(read(join(root, 'Makefile')) ?? '')) verify.push('make test');
   if (has('Cargo.toml')) verify.push('cargo test');
   if (has('go.mod')) verify.push('go test ./...');
@@ -44,6 +57,9 @@ export function diagnose(root) {
     const text = cfgs.map((c) => read(join(root, c)) ?? '').join('\n') + JSON.stringify(pkg.eslintConfig ?? '');
     if (!cfgs.length && !pkg.eslintConfig) add('D2', 'gap', 'no ESLint or Biome config, so nothing flags empty catch blocks', 'Enable ESLint\'s no-empty (in "recommended") or Biome\'s recommended rules.');
     else if (/no-empty|recommended/.test(text)) add('D2', 'ok', `lint config present (${cfgs.join(', ') || 'package.json'}) with no-empty or a recommended preset`);
+    else if (/from ['"](@nx\/eslint-plugin|typescript-eslint|@typescript-eslint|@eslint\/js|eslint-config-[\w-]+|@[\w-]+\/eslint-config[\w-]*)['"]|require\(['"](eslint-config-|@[\w-]+\/eslint-config)/.test(text)) {
+      add('D2', 'info', `lint config (${cfgs.join(', ')}) imports presets whose rules doctor can't see (it never runs repo code)`, 'Check: npx eslint --print-config <a source file> | grep no-empty');
+    }
     else add('D2', 'info', `lint config present (${cfgs.join(', ')}) but no-empty not found`, 'Turn on no-empty; error-masking constructs rose 47% in AI-era code (GitClear 2026).');
   }
   if (isPy) {
@@ -53,10 +69,11 @@ export function diagnose(root) {
   }
 
   // D3: secrets readable without a deny rule
-  const secrets = walk(root, 2, (n) => (/^\.env(\..+)?$/.test(n) && !/example|sample|template/.test(n)) || /\.(pem|key|p12)$/.test(n) || /^id_(rsa|ed25519)$/.test(n) || n === 'credentials.json');
+  const secrets = walk(root, 4, (n) => (/^\.env(\..+)?$/.test(n) && !/example|sample|template/.test(n)) || /\.env$/.test(n) && n !== '.env' && !/example/.test(n) || /\.(pem|key|p12)$/.test(n) || /^id_(rsa|ed25519)$/.test(n) || n === 'credentials.json');
   const settings = [json(join(root, '.claude/settings.json')), json(join(root, '.claude/settings.local.json'))].filter(Boolean);
-  const deny = settings.flatMap((s) => s.permissions?.deny ?? []);
-  const unguarded = secrets.filter((s) => !deny.some((d) => /^Read\(/.test(d) && (d.includes('.env') && s.includes('.env') || d.includes(s) || /\*\*/.test(d) && d.includes(s.split('.').pop()))));
+  const deny = settings.flatMap((s) => s.permissions?.deny ?? []).map((d) => d.match(/^Read\((.*)\)$/)?.[1]).filter(Boolean).map((p) => p.replace(/^\.\//, ''));
+  const covered = (f) => deny.some((p) => pathMatches(f, p) || (p.startsWith('**/') && (pathMatches(f, p.slice(3)) || pathMatches(f.split('/').pop(), p.slice(3)))));
+  const unguarded = secrets.filter((f) => !covered(f));
   if (unguarded.length) add('D3', 'gap', `secret-looking files the agent can read: ${unguarded.slice(0, 6).join(', ')}${unguarded.length > 6 ? ' ...' : ''}`, 'Suggested deny rules for .claude/settings.json (review before adding): {"permissions":{"deny":["Read(./.env)","Read(./.env.*)","Read(./**/*.pem)","Read(~/.ssh/**)","Read(~/.aws/**)"]}}');
   else if (secrets.length) add('D3', 'ok', 'secret-looking files are covered by Read deny rules');
 
@@ -73,18 +90,24 @@ export function diagnose(root) {
   const mcp = json(join(root, '.mcp.json'));
   if (mcp?.mcpServers) risky.push(`.mcp.json declares MCP servers: ${Object.keys(mcp.mcpServers).join(', ')}`);
   if (has('.claude/hooks')) risky.push('.claude/hooks/ contains hook scripts');
-  if (risky.length) add('D4', 'review', 'repo-level agent config that can run code or redirect traffic:\n    - ' + risky.join('\n    - '), 'Read these before trusting the repo, and keep Claude Code updated. jig never edits them.');
+  const acked = json(join(stateDir(root), 'doctor-ack.json'))?.digest === configDigest(root);
+  if (risky.length && acked) add('D4', 'ok', 'repo-level agent config is unchanged since you marked it reviewed (jig doctor --ack)');
+  else if (risky.length) add('D4', 'review', 'repo-level agent config that can run code or redirect traffic:\n    - ' + risky.join('\n    - '), 'Read these before trusting the repo, and keep Claude Code updated. jig never edits them. Once read, `jig doctor --ack` stops this note until they change.');
   else add('D4', 'ok', 'no repo-level hooks, MCP servers or risky settings');
 
   // D5: CI, secret scanning, SAST
   const wf = walk(root, 2, (n, r) => r.startsWith('.github/workflows/') && /\.ya?ml$/.test(n));
   const ci = wf.map((w) => read(join(root, w)) ?? '').join('\n') + (read(join(root, '.gitlab-ci.yml')) ?? '');
-  if (!ci.trim()) add('D5', 'gap', 'no CI configuration found', 'Run the verify command in CI so a green result doesn\'t depend on the agent saying so.');
+  const hookFiles = [...walk(root, 1, (n, r) => r.startsWith('.githooks/')), ...walk(root, 1, (n, r) => r.startsWith('.husky/')), ...['lefthook.yml', '.pre-commit-config.yaml'].filter(has)];
+  const local = hookFiles.map((f) => read(join(root, f)) ?? '').join('\n');
+  if (has('.githooks') && !(git(root, ['config', '--local', '--get', 'core.hooksPath']) ?? '').trim()) add('D5', 'gap', '.githooks/ exists but core.hooksPath is not set here, so those hooks never run on this machine', 'git config core.hooksPath .githooks');
+  if (!ci.trim() && !local.trim()) add('D5', 'gap', 'no CI configuration or git hooks found', 'Run the verify command in CI so a green result doesn\'t depend on the agent saying so.');
   else {
-    if (/gitleaks|trufflehog|detect-secrets|ggshield/.test(ci)) add('D5', 'ok', 'CI runs a secret scanner');
-    else add('D5', 'gap', 'CI runs no secret scanner', 'Add gitleaks or trufflehog.');
-    if (/codeql|semgrep|snyk|bandit|gosec/.test(ci)) add('D5', 'ok', 'CI runs static security analysis');
-    else add('D5', 'info', 'CI runs no SAST', 'Consider CodeQL or Semgrep; security prompting reduces issues but doesn\'t remove them.');
+    const where = ci.trim() ? 'CI config' : 'git hooks';
+    if (/gitleaks|trufflehog|detect-secrets|ggshield/.test(ci + local)) add('D5', 'ok', `a secret scanner is configured (${where}); doctor can't tell whether CI actually runs`);
+    else add('D5', 'gap', `no secret scanner in the CI config or git hooks (doctor reads the config; it can't tell whether CI runs)`, 'Add gitleaks or trufflehog to CI and to the pre-push hook.');
+    if (/codeql|semgrep|snyk|bandit|gosec/.test(ci + local)) add('D5', 'ok', 'static security analysis is configured');
+    else add('D5', 'info', 'no SAST configured', 'Consider CodeQL or Semgrep; security prompting reduces issues but doesn\'t remove them.');
   }
 
   // D6: lockfile drift
@@ -105,7 +128,12 @@ export function diagnose(root) {
 
 const ICON = { ok: 'ok    ', gap: 'GAP   ', review: 'REVIEW', info: 'note  ' };
 
-export function doctor(root, { json: asJson = false } = {}) {
+export function doctor(root, { json: asJson = false, ack = false } = {}) {
+  if (ack) {
+    const d = configDigest(root);
+    writeFileSync(join(stateDir(root), 'doctor-ack.json'), JSON.stringify({ digest: d, at: new Date().toISOString() }));
+    console.log('Marked the repo-level agent config as reviewed. jig doctor will flag it again if any of those files change.');
+  }
   const F = diagnose(root);
   if (asJson) console.log(JSON.stringify(F, null, 2));
   else {

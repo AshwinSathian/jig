@@ -97,10 +97,10 @@ Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nu
 
 ```
 jig new <slug> --tier brief|full|program --title "..."   start a plan with the baseline commit filled in
-jig lint [path ...] [--no-paths]                         check plans against the format (rules J01 to J20)
+jig lint [path ...] [--no-paths]                         check plans against the format (rules J01 to J21)
 jig status                                               active plans, their Now line, the current slice
 jig verify [--slice S2] [--fast] [--record]              run checks.json; --record writes the result to the Log
-jig doctor                                               report harness gaps; changes nothing
+jig doctor [--ack]                                       report harness gaps; --ack marks the repo's agent config as read
 ```
 
 Here's `jig doctor` on a bare repo with an `.env` file in it:
@@ -117,7 +117,9 @@ GAP    D6 package.json has dependencies but no lockfile
 5 item(s) to look at. jig doctor changed nothing.
 ```
 
-D4 flags repo settings that can run code or redirect API traffic before you've read them: hooks, `ANTHROPIC_BASE_URL`, `bypassPermissions`, and auto-enabled MCP servers. Those are the settings behind CVE-2025-59536, CVE-2026-21852 and CVE-2026-33068.
+Plans go in your repo's existing plans folder (`docs/plans/` or `docs/plan/`), or wherever `.jig.json` says with `{"plansDir": "..."}`.
+
+D4 flags repo settings that can run code or redirect API traffic before you've read them: hooks, `ANTHROPIC_BASE_URL`, `bypassPermissions`, and auto-enabled MCP servers. Those are the settings behind CVE-2025-59536, CVE-2026-21852 and CVE-2026-33068. Once you've read them, `jig doctor --ack` keeps D4 quiet until one of those files changes. Doctor never runs repo code, so where a lint preset or CI status can't be read from the files, it says so rather than guessing.
 
 ## Evidence
 
@@ -167,7 +169,7 @@ node evals/reviewer/run.mjs --runs 3
   - self-review against fresh-context review
   - plans rated by people
 - **The hooks are Claude Code only.** The skills and plan files are plain markdown, but the skills point at `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code fills in.
-- **It costs tokens.** The nudge is about 80 tokens a session, and planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
+- **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
 - **The Stop hook only works with a `checks.json`.** Brief plans that list their checks as commands don't trigger it.
 - **No telemetry.** The CLI and hooks make no network requests. The evals run Claude on your account, and whatever the agent does in their throwaway fixture repos.
 
