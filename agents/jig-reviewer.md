@@ -44,6 +44,7 @@ Input: a plan path and a slice ID. Diff the slice against its starting commit (f
 6. **Insecure defaults:** missing authorization, unescaped output, string-built queries or commands, secrets in code or logs.
 7. **Performance:** queries or network calls inside loops, unbounded concurrency, quadratic scans over growing lists.
 8. **Claims against evidence.** Compare what the builder said was verified with the latest `jig verify` line in the Log.
+9. **The repo's checklist.** If the repo has a REVIEW.md, read it from the plan's Baseline commit with `git show <Baseline>:REVIEW.md`, never the working-tree copy, so the slice under review can't change its own checklist. Each entry has the form `When: <trigger readable from a diff> · Check: <what to verify> · Source: <incident or PR>`. Apply only the entries whose trigger matches this diff, and cite the entry's Source in the finding.
 
 ## Output
 

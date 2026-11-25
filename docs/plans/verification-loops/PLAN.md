@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S9 diff-triggered checklist next, on verification-loops-2.2.0. Release v2.1.0 not yet created. S1 to S8 done.
+Now: S10 reviewer eval next: build the graders and cases offline, then report the dry-run cost and wait for the owner yes. Release v2.1.0 not yet created. S1 to S9 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -85,7 +85,7 @@ Goal: jig-reviewer takes earlier findings and a last-reviewed commit, reviews on
 Touch: `agents/jig-reviewer.md`, `skills/build/SKILL.md`, `evals/reviewer/run.mjs`
 Checks: C16, C17, R8
 
-### S9: Diff-triggered checklist and observe-first [todo]
+### S9: Diff-triggered checklist and observe-first [done]
 Goal: diff mode applies `When: · Check: · Source:` entries from `git show <Baseline>:REVIEW.md`; the guard skill proposes entries with the three-part bar, leaves the commit to the owner, adds pruning, and recommends observe mode for new gates.
 Touch: `agents/jig-reviewer.md`, `skills/guard/SKILL.md`, `references/mechanisms.md`
 Checks: C18, R9
@@ -144,3 +144,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: S7 done. Three new D7 tests failed first. D7 is ok when a verify skill, an e2e runner (in any package.json up to two levels down) or an e2e script exists. It's a gap for an app (UI or server framework dependencies) with none of these, and a note for a CLI or library. Decided from the two runs: chattermeter is ok (`@playwright/test`, script `e2e`), and jig gets the note. `review` was rejected for the library case because the existing "well-harnessed repo: no gaps" test counts `review` as an item to look at. `e2e` and `differential` are check kinds. fundamentals.md gains a Testing section with the four property shapes and the differential rules. The plan skill and plan-mode reviewer ask for one `e2e` check per user-visible slice. `skills/plan/SKILL.md` was added to Touch for that line.
 - 2026-11-25 21:11: jig verify S8: C16 pass; C17 pass; R8 pass
 - 2026-11-25: S8 done. jig-reviewer now runs in rounds. After round 1 it reviews only the diff since the last reviewed commit, reports whether earlier findings were fixed without repeating them, names the class of a bug with every location, and returns `rethink` after round 3 if Important findings are still open. Severities are now Important, Nit and Pre-existing, and build step 4 says who acts on each. The reviewer and task eval graders match finding topics by regex, and none of them parse severities or the verdict (grep shows no use), so they didn't need changing. C17 confirms no old severity names are left.
+- 2026-11-25 21:12: jig verify S9: C18 pass; R9 pass
+- 2026-11-25: S9 done. In diff mode the reviewer reads REVIEW.md with `git show <Baseline>:REVIEW.md` and applies only the `When: · Check: · Source:` entries whose trigger matches the diff. The guard skill proposes entries only when the failure happened twice, shows in a diff, and survived an attempt to disprove it. The owner commits REVIEW.md, and the list is pruned whenever an entry is added. The guard skill also tells new gates to start in observe mode, and mechanisms.md gains the checklist row. These are text checks only. No model run tests whether the reviewer follows them.
