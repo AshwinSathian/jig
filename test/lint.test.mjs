@@ -60,6 +60,13 @@ const MUTATIONS = [
   ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept; exit 0')],
   ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || :')],
   ['J24', full, (t) => t.replace('Checks: C3, C4', 'Checks: C3, C4, C1'), null, 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'npx cypress run --config retries=2'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'for i in 1 2 3; do npm test && break; done'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'while ! npm test; do :; done'), 'warning'],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || true # flaky')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || echo failed')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept; true')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept 2>&1 | tail -20')],
 ];
 
 // The good full fixture's checks with one cmd replaced.
@@ -77,8 +84,20 @@ for (const [rule, base, mutate, checks, level = 'error'] of MUTATIONS) {
   });
 }
 
-test('the good full plan raises no J22, J23 or J24', () => {
+test('the good full plan, and checks that can still fail, raise no J22, J23 or J24', () => {
   assert.deepEqual(lint(full, fullChecks).filter((p) => ['J22', 'J23', 'J24'].includes(p.rule)), []);
+  for (const cmd of [
+    'pkill -f server || true; npm test',
+    'rm -rf dist || true && npm test',
+    'docker rm -f db || true; docker run -d db && npm run e2e',
+    'node --test test/retry.test.mjs',
+    'npx jest -t "retry backoff"',
+    'npx vitest run src/retry',
+    'node --test --test-name-pattern "waits until the lock is released and do not double-charge" test/lock.test.mjs',
+    'set -o pipefail; npm test 2>&1 | tail -20',
+  ]) {
+    assert.deepEqual(lint(full, withCmd('C1', cmd)).filter((p) => ['J22', 'J23'].includes(p.rule)).map((p) => p.rule), [], cmd);
+  }
 });
 
 test('vague words and risk grids are warnings, not errors', () => {

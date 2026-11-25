@@ -115,12 +115,16 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
   }
   // J22: a check that retries or sleeps hides a flaky test instead of fixing
   // it. J23: a check that can't fail checks nothing.
-  const RETRY = /--retr(y|ies)\b|--reruns?\b|\bretry\b|\bsleep\s+\d|\buntil\b[\s\S]*\bdo\b/;
-  const CANT_FAIL = /\|\|\s*(true|:)\s*($|[;&|)])|;\s*exit\s+0\s*$|\|\|\s*exit\s+0\b/;
+  // Only shell syntax counts: a test named "retry backoff" is fine. A cleanup
+  // step such as `pkill x || true; npm test` can still fail, so J23 looks only
+  // at how the command ends.
+  const RETRY = /--retr(y|ies)\b|--reruns?\b|\bretries=\d|(^|[;&|]\s*)(npx\s+)?retry\b|\bsleep\s+\d|\b(until|while)\b.*;\s*do\b|\bfor\b.*;\s*do\b.*\bbreak\b/;
+  const CANT_FAIL = /(\|\|\s*(true|:|\/bin\/true|exit\s+0|echo\b[^;&|]*)|;\s*(true|:|exit\s+0)|\|\s*(tail|head|tee)\b[^;&|]*)\s*$/;
+  const ending = (cmd) => cmd.replace(/\s+#[^'"]*$/, '');
   for (const c of checksData?.checks ?? []) {
     if (typeof c.cmd !== 'string') continue;
     if (RETRY.test(c.cmd)) warn('J22', 0, `check ${c.id} retries or sleeps (\`${c.cmd}\`); find the flaky test's cause, or delete the test and log why`);
-    if (CANT_FAIL.test(c.cmd)) err('J23', 0, `check ${c.id} can't fail (\`${c.cmd}\`); remove the \`|| true\`, \`|| :\` or \`exit 0\``);
+    if (CANT_FAIL.test(ending(c.cmd)) && !(/\|\s*(tail|head|tee)\b[^;&|]*$/.test(ending(c.cmd)) && /pipefail/.test(c.cmd))) err('J23', 0, `check ${c.id} can't fail (\`${c.cmd}\`); its exit status comes from \`|| true\`, \`|| echo\`, \`; exit 0\` or a pipe into \`tail\`/\`head\`/\`tee\`; remove it, or use \`set -o pipefail\``);
   }
   const checkSlice = new Map((checksData?.checks ?? []).map((c) => [c.id, c.slice]));
   const slicesSec = section(plan, 'Slices');
