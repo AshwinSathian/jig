@@ -1,7 +1,7 @@
 # jig v2: a planning and build harness for coding agents
 
-Status: building · Tier: full · Baseline: ddb3fdb · Updated: 2026-11-25
-Now: 2.0.1 publishing from GitHub Actions. S0 to S4 and S6 done; S5 waits on a full 3-run eval.
+Status: shipped · Tier: full · Baseline: ddb3fdb · Updated: 2026-11-25
+Now: shipped. jig-plan 2.2.0 is on npm with provenance. Follow-on work lives in docs/plans/verification-loops/ and docs/plans/open-items/.
 
 ## Outcome
 jig replaces the `plan-engineering` skill. It is a Claude Code plugin that plans engineering work at any size, carries the plan through to verified code, and turns repeated failures into deterministic guardrails. Design detail is in [docs/design.md](../../design.md), and the evidence is in [the adversarial review](../../research/2026-11-adversarial-review.md).
@@ -28,7 +28,7 @@ Done when:
 - Writing any user settings file. Doctor suggests deny rules and never applies them.
 
 ## Questions
-- None until S5: public or private repo first, and whether to list jig on a marketplace.
+- None. Answered in practice: the repo is public (github.com/AshwinSathian/jig), and jig installs from its own marketplace and from npm as `jig-plan`.
 
 ## Assumptions
 - Node 20+ wherever the CLI runs.
@@ -64,7 +64,7 @@ Goal: repeated failures become hooks, lint rules or tests, and doctor reports ha
 Touch: `skills/guard/SKILL.md`, `cli/lib/doctor.mjs`, `references/team.md`, `test/doctor.test.mjs`, `eslint.config.js`
 Checks: C1
 
-### S5: Evals, packaging, publish prep [doing]
+### S5: Evals, packaging, publish prep [done]
 Goal: the evidence report exists, and the plugin installs from its own marketplace.
 Touch: `evals/`, `README.md`, `CHANGELOG.md`, `.claude-plugin/marketplace.json`, `.github/workflows/ci.yml`, `cli/`, `docs/plans/jig-v2/checks.json`
 Checks: C4, C5
@@ -91,3 +91,4 @@ Checks: C1
 - 2026-11-25: Live install verified from GitHub in an isolated config dir (marketplace add, install, `plugin details`: 3 skills, 1 agent, 3 hook events, about 429 always-on tokens). A headless run on the installed copy found `jig` on PATH, the pre-bash hook blocked `npm install left-padd`, and the SessionStart nudge arrived verbatim.
 - 2026-11-25: S6 dogfood on chattermeter (scratch clones). Doctor was wrong or misleading on 4 of 6 checks (npm instead of pnpm, a no-empty rule set by an Nx preset, secrets not scanned deep enough, CI assumed to run while Actions is suspended). The plan skill wrote ACCT-06 to the repo's `docs/plan/`, but jig's status and hooks couldn't see it, and ACC-06 started a second `docs/plans/`. Acceptance checks ran whole suites, and no check was fast, so the Stop hook accepted an empty verify. All fixed, with regression tests in `test/dogfood.test.mjs` (67 tests pass). The plans were good: 81 and 52 lines, both lint-clean. The reviewer caught a missed one-way door in ACCT-06. The no-jig baseline plan was 133 lines with 8 questions, and it had a priority question and a risks table that jig's lacked.
 - 2026-11-25: 2.0.0 published to npm by the owner (shasum `34c625ce`, matches `main` at `8000799`) and released as v2.0.0. The publish workflow skipped as designed. Trusted publishing configured with `npm trust github`. jig installed at user scope; the old `plan-engineering` skill removed (identical to `16c5eb7`). The ChatterMeter session has the OPS-17, SEC-17 and SEC-18 handoff. 2.0.1 (README and SECURITY) is the first release meant to publish from Actions with provenance.
+- 2026-11-25: S5 done, plan shipped. All six checks pass (C1 to C6). C5, the evidence report, exists and compares jig with no skill, plan mode and superpowers, and states the tier-0 overhead. The full 3-run task eval was a wish on the Now line, not a Done-when item, so it's dropped rather than kept open. The evals stay labelled smoke-scale in README and REPORT. The one-way door that waited on them (keep the old skill until v2 passes its evals) was settled when the owner removed `plan-engineering`. The publishing question is answered: the repo is public, and jig ships from its marketplace and from npm (2.0.0 to 2.2.0, the Actions releases with provenance). Decided under the owner's delegation in `docs/plans/open-items/`. If a 3-run eval later fails to reproduce jig's two wins (underspecified, schema-change), README's headline numbers need to change.

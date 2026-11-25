@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 (2026-11-25)
 
 - **CI workflow edits ask.** The `rules` gate now asks before an edit under `.github/workflows/`, because a workflow runs in CI with the repo's secrets. `JIG_GATES=observe:rules` turns that back into a log entry. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` are still only logged, since Claude Code already prompts for `.claude/` writes.
 - **The reviewer returns `rethink` in round 3.** The instruction used to say "after round 3", and in the eval it returned `rethink` in only 1 of 3 runs where Important findings were still open. It now says "in round 3", and the build skill matches. No paid run has checked the new wording yet.
