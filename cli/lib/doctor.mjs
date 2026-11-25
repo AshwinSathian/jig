@@ -26,7 +26,8 @@ function walk(root, depth, pred, out = [], rel = '') {
 
 // Hash of every repo file that can run code or redirect traffic for an agent:
 // everything under .claude/ (no depth limit), .mcp.json, and any repo file the
-// settings or MCP config name in a command. Files over 1 MB hash by size only.
+// settings or MCP config name in a command (plus package.json or Makefile when
+// a command runs npm-style scripts or make). Full content, no size shortcut.
 export function configDigest(root) {
   const files = new Set(['.mcp.json'].filter((f) => existsSync(join(root, f))));
   const all = (rel) => {
@@ -41,15 +42,16 @@ export function configDigest(root) {
   if (existsSync(join(root, '.claude'))) all('.claude');
   const text = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json'].map((f) => read(join(root, f)) ?? '').join('\n');
   const absRoot = resolve(root);
-  for (const tok of text.match(/[\w@.\/${}-]+\.(?:m?js|cjs|ts|sh|py|rb|ps1|bash)\b/g) ?? []) {
+  // Any path-like token in a command may name a script, whatever its extension.
+  for (const tok of text.match(/[\w@.\/${}-]*\/[\w@.\/${}-]+|[\w@.-]+\.[\w]+/g) ?? []) {
     const p = resolve(root, tok.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, '').replace(/^\.\//, ''));
     if (p.startsWith(absRoot + sep) && existsSync(p) && statSync(p).isFile()) files.add(p.slice(absRoot.length + 1));
   }
+  // Commands that run package scripts or make targets run code those files define.
+  if (/\b(npm|pnpm|yarn|bun|npx)\b/.test(text) && existsSync(join(root, 'package.json'))) files.add('package.json');
+  if (/\bmake\b/.test(text) && existsSync(join(root, 'Makefile'))) files.add('Makefile');
   const h = createHash('sha256');
-  for (const f of [...files].sort()) {
-    const st = statSync(join(root, f));
-    h.update(`${f}\0${st.size > 1_000_000 ? `size:${st.size}` : readFileSync(join(root, f))}\0`);
-  }
+  for (const f of [...files].sort()) h.update(`${f}\0`).update(readFileSync(join(root, f))).update('\0');
   return h.digest('hex');
 }
 
@@ -123,7 +125,7 @@ export function diagnose(root) {
   if (mcp?.mcpServers) risky.push(`.mcp.json declares MCP servers: ${Object.keys(mcp.mcpServers).join(', ')}`);
   if (has('.claude/hooks')) risky.push('.claude/hooks/ contains hook scripts');
   const acked = json(ackPath(root))?.digest === configDigest(root);
-  if (risky.length && acked) add('D4', 'ok', 'repo-level agent config (everything under .claude/, .mcp.json, and scripts they name) is unchanged since you ran jig doctor --ack');
+  if (risky.length && acked) add('D4', 'ok', 'repo-level agent config (everything under .claude/, .mcp.json, files their commands name, and package.json or Makefile when commands run them) is unchanged since you ran jig doctor --ack. Code a hook reaches indirectly (imports, PATH lookups) is not tracked');
   else if (risky.length) add('D4', 'review', 'repo-level agent config that can run code or redirect traffic:\n    - ' + risky.join('\n    - '), 'Read these before trusting the repo, and keep Claude Code updated. jig never edits them. Once read, `jig doctor --ack` stops this note until they change.');
   else add('D4', 'ok', 'no repo-level hooks, MCP servers or risky settings');
 
