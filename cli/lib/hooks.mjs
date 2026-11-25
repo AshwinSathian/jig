@@ -244,6 +244,7 @@ export function stop(input) {
   if (!changed) return null;
   // This plan's records only: another plan's failures aren't this slice's rounds.
   const rels = new Set(withChecks.map((x) => relative(root, x.path)));
+  // ponytail: parses all of evidence.jsonl (about 6 KB a record for a 36-check plan); trim old records or keep a running count if Stop gets slow.
   const mine = evidence(root).filter((r) => rels.has(r.plan));
   const ev = mine[mine.length - 1] ?? null;
   const run = `Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.`;
@@ -253,19 +254,33 @@ export function stop(input) {
   if (tree ? ev.tree !== tree : ev.t < st.data.editedAt) {
     return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. ${run}` };
   }
-  const failing = (ev.results ?? []).filter((r) => !r.pass);
-  // Each failing record blocks once; the next block needs a new verify.
-  if (!failing.length || st.data.blockedRecord === ev.t) return null;
-  st.data.blockedRecord = ev.t;
+  // Rounds per plan, from each plan's own last record when it covers this
+  // tree. Each failing record blocks once; the next block needs a new verify.
+  const blocked = new Set(st.data.blockedRecords ?? []);
+  const reasons = [];
+  for (const rel of rels) {
+    const recs = mine.filter((r) => r.plan === rel);
+    const last = recs[recs.length - 1];
+    if (!last || blocked.has(last.t) || (tree ? last.tree !== tree : last.t < st.data.editedAt)) continue;
+    const failing = (last.results ?? []).filter((r) => !r.pass);
+    if (!failing.length) continue;
+    blocked.add(last.t);
+    reasons.push(roundsReason(rel, failing.map((f) => ({ id: f.id, why: f.why, n: failedRounds(recs, f.id) }))));
+  }
+  if (!reasons.length) return null;
+  st.data.blockedRecords = [...blocked].slice(-50);
   st.save();
-  const rounds = failing.map((f) => ({ id: f.id, why: f.why, n: failedRounds(mine.filter((r) => r.plan === ev.plan), f.id) }));
+  return { decision: 'block', reason: reasons.join(' ') };
+}
+
+function roundsReason(plan, rounds) {
   const out = rounds.filter((r) => r.n >= ROUNDS);
   const still = rounds.filter((r) => r.n < ROUNDS);
   const list = still.map((r) => `${r.id} (round ${r.n} of ${ROUNDS})`).join(', ');
   if (out.length) {
-    return { decision: 'block', reason: `jig: ${out.map((r) => `${r.id} has failed ${r.n} verify rounds in a row`).join('; ')}. Stop, and don't try again. Report to the owner what you changed in each round and the current error (${out.map((r) => `${r.id}: ${r.why || 'see jig verify'}`).join('; ')}), and let them decide.${list ? ` Also failing: ${list}.` : ''}` };
+    return `jig (${plan}): ${out.map((r) => `${r.id} has failed ${r.n} verify rounds in a row`).join('; ')}. Stop, and don't try again unless the owner has told you to continue. Report to the owner what you changed in each round and the current error (${out.map((r) => `${r.id}: ${r.why || 'see jig verify'}`).join('; ')}), and let them decide.${list ? ` Also failing: ${list}.` : ''}`;
   }
-  return { decision: 'block', reason: `jig: the last \`jig verify\` had failing checks (${still.map((r) => r.id).join(', ')}). Rounds so far: ${list}. Fix the code, not the check, and verify again, or tell the user plainly they are failing; don't describe the slice as done.` };
+  return `jig (${plan}): the last \`jig verify\` had failing checks (${still.map((r) => r.id).join(', ')}). Rounds so far: ${list}. Fix the code, not the check, and verify again, or tell the user plainly they are failing; don't describe the slice as done.`;
 }
 
 // After three failed rounds on one check, a person decides (the Claude Code

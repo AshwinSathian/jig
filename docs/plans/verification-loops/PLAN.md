@@ -57,7 +57,7 @@ Checks: C3, C4, R2
 
 ### S3: Three rounds [done]
 Goal: the Stop hook blocks once per new failing record, and at round 3 says to stop and report the three attempts; build step 4 says the same. First test reproduces gap 3.
-Touch: `cli/lib/hooks.mjs`, `skills/build/SKILL.md`, `test/rounds.test.mjs (new)`
+Touch: `cli/lib/hooks.mjs`, `cli/lib/verify.mjs`, `skills/build/SKILL.md`, `test/rounds.test.mjs (new)`
 Checks: C5, C6, R3
 
 ### S4: Flaky checks and Verified trailer [todo]
@@ -119,3 +119,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: S3 done. Gap 3 reproduced first: 4 of 5 new rounds tests failed on 77d744d, including a second failing verify in one session that got no block. The Stop hook now counts consecutive failing records per check, for this plan only, back to that check's last pass. Each new failing record blocks once. At round 3 the reason says to stop, report each attempt and the current error to the owner, and not try again. Evidence records keep the failure reason (200 chars) so the hook can quote it. Build step 4 states the same rule.
 - 2026-11-25 19:40: jig verify: C1 pass; C3 pass; C5 pass
 - 2026-11-25: S2 follow-up from two background security reviews. An unreadable untracked file made `treeId` throw before the protected-test check ran, so the pre-edit hook failed open. A new test reproduced it. Each file is now hashed in its own try (unreadable files by size and mtime), FIFOs and devices are never opened, and the start tree is taken after the protection checks. An Edit to an active PLAN.md that the hook can't simulate now asks, matching checks.json.
+- 2026-11-25: S3 diff review: ready, 5 minor findings, all applied. `cli/lib/verify.mjs` is added to S3's Touch, because evidence records now keep the failure reason. Rounds are now counted per active plan from that plan's own current record. Before, a later verify of a second plan hid the first plan's round 3, which this repo would hit with jig-v2 also in progress. The cross-plan test now fails without the fix. A dead regex alternative is removed. The round-3 reason allows continuing when the owner says so. A ponytail note marks the full evidence parse.
+- 2026-11-25 19:41: jig verify S3: C5 pass; C6 pass; R3 pass
