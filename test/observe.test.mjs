@@ -147,3 +147,22 @@ test('pre-edit: a path reached through a symlink of the repo root is still guard
     assert.equal(wf?.hookSpecificOutput?.permissionDecision, 'ask', 'new workflow via symlink');
   } finally { unlinkSync(link); }
 });
+
+test('pre-edit: a symlinked file is judged by its own name and by its target', () => {
+  const { dir } = planRepo();
+  writeFileSync(join(dir, 'notes.md'), '# notes\n');
+  symlinkSync('notes.md', join(dir, 'CLAUDE.md'));
+  const sw = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'CLAUDE.md'), content: 'export JIG_HOOKS_OFF=all\n' } }));
+  assert.equal(sw?.hookSpecificOutput?.permissionDecision, 'ask', 'a switch written through a CLAUDE.md symlink');
+  symlinkSync('a.accept.test.js', join(dir, 'test/alias.js'));
+  const prot = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'test/alias.js'), content: 'x' } }));
+  assert.equal(prot?.hookSpecificOutput?.permissionDecision, 'ask', 'a protected test written through another name');
+});
+
+test('pre-edit: a workflow reached through a linked .github directory still asks', () => {
+  const { dir } = tempRepo();
+  mkdirSync(join(dir, 'ci/workflows'), { recursive: true });
+  symlinkSync('ci', join(dir, '.github'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/x.yml'), content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+});

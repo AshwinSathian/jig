@@ -117,22 +117,42 @@ function switchesIn(text) {
   return s.match(SWITCHES)?.[0] ?? null;
 }
 
-// The path as git sees it: resolve the nearest existing ancestor, so a file
-// reached through a symlink of the repo (macOS /tmp and /private/tmp) maps to
-// the same repo-relative path, and a new file under it does too.
-function canonical(abs) {
-  let dir = abs; const rest = [];
+// The path as git sees it. The directory part is resolved (nearest existing
+// ancestor), so a file reached through a symlink of the repo (macOS /tmp and
+// /private/tmp) maps to the same repo-relative path. The file name is kept as
+// the edit spelled it: a symlink named CLAUDE.md is still a rule file.
+function underRealDir(abs) {
+  let dir = dirname(abs); const rest = [basename(abs)];
   while (!existsSync(dir) && dirname(dir) !== dir) { rest.unshift(basename(dir)); dir = dirname(dir); }
   try { return join(realpathSync(dir), ...rest); } catch { return abs; }
 }
 
+// A symlinked file is judged twice, by its own name and by its target, and
+// the first ask wins: an edit through it changes the target.
 export function preEdit(input) {
   const key = input.tool_input?.file_path !== undefined ? 'file_path' : 'notebook_path';
   const raw = input.tool_input?.[key];
+  if (!raw) return guardPath(input);
   const root = rootOf(input);
-  const abs = raw ? canonical(isAbsolute(raw) ? raw : join(root, raw)) : null;
-  // Every gate below sees the canonical path.
-  if (abs) input = { ...input, tool_input: { ...input.tool_input, [key]: abs } };
+  const given = isAbsolute(raw) ? raw : join(root, raw);
+  const named = underRealDir(given);
+  let target = null;
+  try { target = realpathSync(named); } catch { /* new file: no target yet */ }
+  // Spellings to judge: resolved directories with the edit's file name, the
+  // path exactly as given (keeps an in-repo directory link's name, such as a
+  // linked .github/), and the final target. The first ask wins.
+  const paths = [...new Set([named, given, target].filter(Boolean))];
+  const at = (p) => ({ ...input, tool_input: { ...input.tool_input, [key]: p } });
+  const asks = (o) => Boolean(o?.decision || o?.hookSpecificOutput?.permissionDecision);
+  const outs = paths.map((p) => guardPath(at(p)));
+  return outs.find(asks) ?? outs[0];
+}
+
+function guardPath(input) {
+  const key = input.tool_input?.file_path !== undefined ? 'file_path' : 'notebook_path';
+  const raw = input.tool_input?.[key];
+  const root = rootOf(input);
+  const abs = raw ? (isAbsolute(raw) ? raw : join(root, raw)) : null;
   const rel = abs ? relative(root, abs) : null;
   // Turning jig's gates off from a rule file always asks, and has no gate
   // name, so observe mode can't silence it. Judged on the whole file after
