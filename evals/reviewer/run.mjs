@@ -1,110 +1,108 @@
 #!/usr/bin/env node
-// Does the jig-reviewer agent find seeded plan defects that a plain review misses?
-// The plan passes `jig lint`; its five defects need judgment, not format checks.
-// Usage: node evals/reviewer/run.mjs [--runs 2]
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
-import { rmSync } from 'node:fs';
+// Reviewer eval: does a fresh-context jig-reviewer find seeded plan defects
+// that a same-session self-review or a plain review misses, without flagging
+// clean plans? Cases live in ./cases: `tuning` cases may be used to tune
+// prompts and graders, `test` cases never are, and `control` cases are clean.
+// Grading is in ./grade.mjs (unit-tested, no API spend).
+//
+// Usage:
+//   node evals/reviewer/run.mjs --dry                one fresh review of one test case; prints its cost and an estimate for the full run
+//   node evals/reviewer/run.mjs [--runs 3] [--set test|tuning|control|all] [--arm plain,fresh,self]
+// This spends API money on your account. Run --dry first.
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runClaude, arms, usageOf, pool } from '../lib/claude.mjs';
+import { grade, verdict, summarize } from './grade.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const JIG = join(HERE, '..', '..');
+const argv = process.argv.slice(2);
+const opt = (k, d) => (argv.includes(`--${k}`) ? argv[argv.indexOf(`--${k}`) + 1] : d);
+const dry = argv.includes('--dry');
+const runs = Number(opt('runs', 3));
+const set = opt('set', 'all');
+const armNames = opt('arm', 'plain,fresh,self').split(',');
+const MAX_ROUNDS = 3;
+
 // Throwaway fixture repos are removed on exit; pass --keep to inspect them.
 const MADE = [];
-process.on('exit', () => { if (!process.argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
-const JIG = join(HERE, '..', '..');
-const runs = Number((process.argv.includes('--runs') ? process.argv[process.argv.indexOf('--runs') + 1] : '2'));
+process.on('exit', () => { if (!argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
 
-const PLAN = `# Customer notes with totals
+const cases = await Promise.all(readdirSync(join(HERE, 'cases')).filter((f) => f.endsWith('.mjs')).sort()
+  .map(async (f) => (await import(pathToFileURL(join(HERE, 'cases', f)).href)).default));
 
-Status: draft · Tier: full · Baseline: HEAD · Updated: 2026-11-25
-Now: drafting.
-
-## Outcome
-Signed-in users can add notes to a customer and see each customer's order total in the list.
-Done when:
-- C1 and C2 pass under \`jig verify\`
-
-## Decisions
-- Add a \`notes\` column to the customers table with a new migration. Reason: notes belong to the customer.
-- Add \`src/lib/money.js\` with \`formatMoney(cents)\` for the totals. Reason: totals need currency formatting.
-- Build the list by fetching each customer's orders with \`db.getOrdersForCustomer(id)\` in a loop. Reason: simplest code.
-
-## Out of scope
-- Editing or deleting notes.
-
-## Questions
-- None.
-
-## Assumptions
-- Notes are plain text.
-
-## Slices
-
-### S1: Notes route [todo]
-Goal: POST /customers/:id/notes stores a note.
-Touch: \`src/app.js\`, \`migrations/002_notes.sql (new)\`
-Checks: C1
-
-### S2: Totals in the list [todo]
-Goal: the customer list shows each total.
-Touch: \`src/list.js (new)\`, \`src/lib/money.js (new)\`
-Checks: C2
-
-## Log
-- 2026-11-25: Drafted.
-`;
-const CHECKS = { version: 1, checks: [
-  { id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node -e "process.exit(0)"', timeout_s: 10, fast: true },
-  { id: 'C2', slice: 'S2', kind: 'acceptance', cmd: 'node --test test/*.test.js', timeout_s: 60, fast: true },
-] };
-const FILES = {
-  'package.json': JSON.stringify({ name: 'fx', type: 'module', scripts: { test: 'node --test test/*.test.js' } }),
-  'src/lib/format.js': "export function formatCurrency(cents) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100); }\n",
-  'src/app.js': "const sessions = { 't-alice': 'alice' };\nexport function requireAuth(h) { return sessions[h.authorization] ?? null; }\nexport function handle(method, path, headers = {}) {\n  if (method === 'GET' && path === '/customers') { if (!requireAuth(headers)) return { status: 401 }; return { status: 200 }; }\n  return { status: 404 };\n}\n",
-  'src/db.js': 'export const db = { async getCustomers() { return []; }, async getOrdersForCustomer(id) { return []; }, async getOrderTotalsByCustomer() { return new Map(); } };\n',
-  'migrations/001_customers.sql': 'CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);\n',
-  'test/app.test.js': "import { test } from 'node:test';\ntest('x', () => {});\n",
-  'docs/plans/notes/PLAN.md': PLAN,
-  'docs/plans/notes/checks.json': JSON.stringify(CHECKS, null, 2),
-};
-// Seeded defects and how a review is credited with finding each one.
-const DEFECTS = [
-  ['check that cannot fail (C1)', /C1[\s\S]{0,240}?(always pass|can(no|')t fail|exit\(0\)|trivial|no-op|passes regardless|vacuous|verifies nothing|stub)|(always pass|can(no|')t fail|exit\(0\))[\s\S]{0,160}?C1/i],
-  ['duplicates formatCurrency', /formatCurrency|src\/lib\/format\.js/i],
-  ['unmarked one-way door (schema change)', /one-way|schema|migration[^.\n]{0,120}(irreversib|revers|rollback|gate|approv|mark)/i],
-  ['new route missing auth', /(auth|requireAuth|unauthenticated|401|signed-in)[^.\n]{0,200}(notes|POST|S1|route)|(notes|POST|S1|route)[^.\n]{0,200}(auth|requireAuth|unauthenticated|401)/i],
-  ['query per customer (N+1)', /N\s*\+\s*1|per[- ]customer|in a loop|one query (per|for each)|getOrderTotalsByCustomer|batch/i],
-];
-
-function scaffold() {
+const git = (dir, ...a) => execFileSync('git', ['-c', 'user.email=e@e', '-c', 'user.name=e', ...a], { cwd: dir, encoding: 'utf8' }).trim();
+function scaffold(files) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-rev-')));
   MADE.push(dir);
-  for (const [p, b] of Object.entries(FILES)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), b); }
-  const g = (...a) => execFileSync('git', ['-c', 'user.email=e@e', '-c', 'user.name=e', ...a], { cwd: dir, stdio: 'ignore' });
-  g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'fx');
+  for (const [p, b] of Object.entries(files)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), b); }
+  git(dir, 'init', '-q'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'fixture');
   return dir;
 }
 
-const ARMS = arms({ jigDir: JIG, superpowersDir: '' });
-const VARIANTS = {
-  'plain review': { flags: ARMS.none, prompt: 'Review the plan at docs/plans/notes/PLAN.md against this repository and list its defects. Do not edit files.' },
-  'jig-reviewer': { flags: ARMS.jig, prompt: 'Run the jig-reviewer agent in plan mode on docs/plans/notes/PLAN.md (original request: "let signed-in users add notes to customers and show each customer\'s order total in the list"). Report its findings verbatim. Do not edit files.' },
+const A = arms({ jigDir: JIG, superpowersDir: '' });
+const TOOLS = ['--allowedTools', 'Read,Glob,Grep,Agent,Skill,Write,Bash(jig:*),Bash(git:*),Bash(node:*)'];
+const ARMS = {
+  // No jig: a fresh session asked to review.
+  plain: { flags: A.none, setup: (c) => c.files, prompt: (c) => `Review the plan at ${c.plan} against this repository and list its defects as a numbered list. Do not edit files.` },
+  // jig's fresh-context reviewer, in a subagent that never saw the plan written.
+  fresh: { flags: A.jig, setup: (c) => c.files, prompt: (c, prev) => (prev
+    ? `Run the jig-reviewer agent in plan mode on ${c.plan}, round ${prev.round}. Original request: "${c.request}". Its earlier findings:\n${prev.text}\nLast reviewed commit: ${prev.commit}. Report its output verbatim. Do not edit files.`
+    : `Run the jig-reviewer agent in plan mode on ${c.plan} (original request: "${c.request}"). Report its output verbatim. Do not edit files.`) },
+  // The author reviews its own plan in the same session. An approximation:
+  // the session writes a plan it was handed rather than one it composed.
+  self: { flags: A.jig, setup: (c) => Object.fromEntries(Object.entries(c.files).filter(([p]) => p !== c.plan)), prompt: (c) => `You are drafting a plan for this request: "${c.request}". Write the following plan to ${c.plan} exactly as given; it is your draft.\n\n${c.files[c.plan]}\n\nThen, before handing it to the owner, check your own plan yourself (no subagents): review it against this repository and report "Verdict: ready | fix first | rethink" and numbered findings, each tagged [Important], [Nit] or [Pre-existing]. Edit no other files.` },
 };
-const jobs = [];
-for (const [name, v] of Object.entries(VARIANTS)) for (let r = 0; r < runs; r++) jobs.push({ name, v });
-const results = await pool(jobs, 4, async ({ name, v }) => {
-  const out = await runClaude({ cwd: scaffold(), prompt: v.prompt, armFlags: v.flags, budgetUsd: 3, timeoutMs: 15 * 60_000, extra: ['--allowedTools', 'Read,Glob,Grep,Agent,Skill,Bash(jig:*),Bash(git:*),Bash(node:*)'] });
-  const text = out.result?.result ?? '';
-  const found = DEFECTS.map(([label, re]) => ({ label, hit: re.test(text) }));
-  console.error(`${name}: ${found.filter((f) => f.hit).length}/5  ${found.map((f) => (f.hit ? '+' : '-') + f.label).join(' | ')}  $${usageOf(out.result)?.costUsd?.toFixed(2)}`);
-  return { name, found, usage: usageOf(out.result), text };
-});
-const outDir = join(HERE, '..', 'results'); mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, `reviewer-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.json`), JSON.stringify(results, null, 2));
-for (const name of Object.keys(VARIANTS)) {
-  const rs = results.filter((r) => r.name === name);
-  console.log(`${name}: ${rs.map((r) => r.found.filter((f) => f.hit).length).join(', ')} of 5 found per run`);
+
+async function review(arm, c) {
+  const a = ARMS[arm];
+  const dir = scaffold(a.setup(c));
+  const ask = (prev) => runClaude({ cwd: dir, prompt: a.prompt(c, prev), armFlags: a.flags, budgetUsd: 3, timeoutMs: 15 * 60_000, extra: TOOLS });
+  let out = await ask(null);
+  let text = out.result?.result ?? '';
+  const texts = [text];
+  let cost = usageOf(out.result)?.costUsd ?? 0;
+  const g = grade(text, c);
+  // Rounds-to-pass: the fresh reviewer re-reviews after the builder's fix.
+  let rounds = null;
+  if (arm === 'fresh' && c.fixed) {
+    rounds = [verdict(text)];
+    while (rounds[rounds.length - 1] !== 'ready' && rounds.length < MAX_ROUNDS) {
+      const commit = git(dir, 'rev-parse', '--short', 'HEAD');
+      for (const [p, b] of Object.entries(c.fixed)) writeFileSync(join(dir, p), b);
+      git(dir, 'commit', '-qa', '--allow-empty', '-m', `fix round ${rounds.length}`); // round 3 may re-review an unchanged fix
+      out = await ask({ round: rounds.length + 1, text, commit });
+      text = out.result?.result ?? '';
+      texts.push(text);
+      cost += usageOf(out.result)?.costUsd ?? 0;
+      rounds.push(verdict(text));
+    }
+  }
+  console.error(`${arm} ${c.id} (${c.set}): recall ${g.recall ?? '-'}, false positives ${g.falsePositives ?? '-'}, verdict ${g.verdict}${rounds ? `, rounds ${rounds.join(' > ')}` : ''}  $${cost.toFixed(2)}`);
+  return { arm, id: c.id, set: c.set, grade: g, rounds, costUsd: cost, texts };
+}
+
+const chosen = cases.filter((c) => set === 'all' || c.set === set);
+const jobs = dry
+  ? [{ arm: 'fresh', c: cases.find((c) => c.fixed) }]
+  : armNames.flatMap((arm) => chosen.flatMap((c) => Array.from({ length: runs }, () => ({ arm, c }))));
+const results = await pool(jobs, 4, ({ arm, c }) => review(arm, c));
+
+if (dry) {
+  const one = results[0];
+  const reviews = (one.rounds?.length ?? 1);
+  const perReview = one.costUsd / reviews;
+  const full = ['plain', 'fresh', 'self'].length * cases.length * 3;
+  const saved = join(tmpdir(), `jig-reviewer-dry-${process.pid}.json`);
+  writeFileSync(saved, JSON.stringify(results, null, 2));
+  console.log(`review texts: ${saved}`);
+  console.log(`dry run: ${reviews} review(s) of ${one.id} cost $${one.costUsd.toFixed(2)} ($${perReview.toFixed(2)} each).`);
+  console.log(`full run estimate (3 arms x ${cases.length} cases x 3 runs = ${full} reviews, plus up to ${2 * 3} extra fresh rounds): about $${(perReview * (full + 6)).toFixed(0)}.`);
+} else {
+  const outDir = join(HERE, '..', 'results'); mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, `reviewer-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.json`), JSON.stringify(results, null, 2));
+  console.log(JSON.stringify(summarize(results), null, 2));
 }
