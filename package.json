@@ -3,11 +3,34 @@
   "version": "2.0.0",
   "description": "Plan, verify and guard work done by coding agents: short reviewable plans, executable acceptance checks, and hooks that stop false completion claims.",
   "type": "module",
-  "bin": { "jig": "cli/jig.mjs" },
-  "files": ["cli", "references", "skills", "agents", "hooks", "bin", ".claude-plugin", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test test/*.test.mjs" },
+  "bin": {
+    "jig": "cli/jig.mjs"
+  },
+  "files": [
+    "cli",
+    "references",
+    "skills",
+    "agents",
+    "hooks",
+    "bin",
+    ".claude-plugin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "license": "MIT",
   "author": "Ashwin Sathian (https://ashwinsathian.com/)",
-  "repository": "github:AshwinSathian/jig"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AshwinSathian/jig.git"
+  },
+  "homepage": "https://github.com/AshwinSathian/jig#readme",
+  "bugs": {
+    "url": "https://github.com/AshwinSathian/jig/issues"
+  }
 }
