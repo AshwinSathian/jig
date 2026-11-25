@@ -97,3 +97,15 @@ test('indented sub-bullets elaborate a finding and are not counted as more findi
 test('a ready review with no Findings section has no findings, even with notes on what holds', () => {
   assert.equal(grade('Verdict: ready\n\n- **Reuse:** totals exists.\n- **Keys:** the labels hold.', control).falsePositives, 0);
 });
+
+test('a "Checked and fine" list is not findings, and tagged reviews count only [Important]', () => {
+  assert.equal(grade('Verdict: ready\nFindings:\n1. [Nit] a\n2. [Nit] b\n\nChecked and fine:\n- lint passes\n- no one-way doors', control).falsePositives, 0);
+  assert.equal(grade('Verdict: fix first\nFindings:\n1. [Important] a\n2. [Nit] b\n- an untagged aside', control).falsePositives, 1);
+  assert.equal(grade('Verdict: fix first\nFindings:\n1. a\n2. b', control).falsePositives, 2, 'untagged review counts every finding');
+});
+
+test('"Findings: none" and a prose lead-in to a checked list end the findings', () => {
+  assert.equal(grade('Verdict: ready\nFindings: none.\n\n- **Entry point:** fine\n- **Scope:** fine', control).falsePositives, 0);
+  assert.equal(grade('Verdict: ready\nFindings:\n1. [Nit] a\n\nI checked the following against the repo:\n- **Plan structure:** matches', control).falsePositives, 0);
+  assert.equal(grade('Verdict: fix first\nFindings:\n1. a\n\nI checked the following:\n- b', control).falsePositives, 1);
+});

@@ -9,7 +9,7 @@
 //   node evals/reviewer/run.mjs --dry                one fresh review of one test case; prints its cost and an estimate for the full run
 //   node evals/reviewer/run.mjs [--runs 3] [--set test|tuning|control|all] [--arm plain,fresh,self]
 // This spends API money on your account. Run --dry first.
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -112,6 +112,16 @@ async function review(arm, c) {
   const used = [...new Set(log.flatMap((l) => l.tools))].join('/') || 'none';
   console.error(`${arm} ${c.id} (${c.set})${g.valid ? '' : ' INVALID'}: recall ${g.recall ?? '-'}, false positives ${g.falsePositives ?? '-'}, verdict ${g.verdict}${rounds ? `, rounds ${rounds.join(' > ')}` : ''}, tools ${used}  $${cost.toFixed(2)} (run total $${spent.toFixed(2)})`);
   return { arm, id: c.id, set: c.set, grade: g, rounds, costUsd: cost, texts, log };
+}
+
+// --regrade a.json,b.json: score saved review texts with the current grader
+// and print the summary. Spends nothing.
+if (opt('regrade')) {
+  const byId = Object.fromEntries(cases.map((c) => [c.id, c]));
+  const saved = opt('regrade').split(',').flatMap((f) => JSON.parse(readFileSync(f, 'utf8')));
+  const regraded = saved.map((r) => ({ ...r, grade: { ...grade(r.texts?.[0] ?? '', byId[r.id]), valid: r.grade?.valid !== false && Boolean(r.texts?.[0]) }, rounds: r.rounds }));
+  console.log(JSON.stringify(summarize(regraded), null, 2));
+  process.exit(0);
 }
 
 const chosen = cases.filter((c) => set === 'all' || c.set === set);

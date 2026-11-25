@@ -9,7 +9,7 @@ The rest of the verification review (rows 6 to 10).
 - **Reviewer rounds.** jig-reviewer takes its earlier findings and the last commit it reviewed, looks only at the new diff, names a bug's whole class instead of one instance, and returns `rethink` after round 3. Severities are now Important, Nit and Pre-existing.
 - **REVIEW.md checklist.** In diff mode the reviewer reads `REVIEW.md` from the plan's baseline commit and applies the `When: · Check: · Source:` entries that match. The guard skill proposes an entry only when the problem happened twice, can be seen in a diff, and survived an attempt to disprove it. You commit the file yourself.
 - **Observe first.** The guard skill now starts every new gate in observe mode.
-- **Reviewer eval with controls.** Separate tuning and held-out cases, a clean control for counting false positives, rounds-to-pass, and plain, fresh and self-review arms. `--dry` prints the cost first. We haven't done the full run yet.
+- **Reviewer eval with controls.** Separate tuning and held-out cases, a clean control for counting false positives, and plain, fresh and self-review arms. `--dry` prints the cost first, and `--regrade` re-scores saved reviews for free. In the first full run every arm found all 15 held-out defects, and none flagged the clean control. Only the fresh jig-reviewer named an unflagged schema change as a one-way door. Rounds-to-pass needs a builder in the loop, which this eval doesn't have yet. Details are in `evals/results/REPORT.md`.
 
 ## 2.1.0 (2026-11-25)
 

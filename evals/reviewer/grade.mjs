@@ -2,7 +2,7 @@
 // without spending anything (test/reviewer-grade.test.mjs).
 
 const ITEM = /^(#+\s*)?(\*\*)?(\d+[.)]|[-*])(\*\*)?\s+\S/;
-const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary)\b/i;
+const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary|checked\b|what holds|strengths)/i;
 
 // List items inside the "Findings" block (any common list form). When a
 // review has no Findings heading, every list item before a closing section
@@ -12,9 +12,11 @@ export function findings(text) {
   const start = lines.findIndex((l) => /^\s*(#+\s*)?(\*\*)?findings\b/i.test(l));
   // A ready review with no Findings section lists what holds, not defects.
   if (start === -1 && verdict(text) === 'ready') return [];
+  if (start !== -1 && /findings\W*:?\W*(none|no findings)\b/i.test(lines[start])) return [];
   const out = [];
   for (const l of lines.slice(start + 1)) {
-    if (SECTION_END.test(l)) break;
+    // A closing section, or a prose lead-in to another list ("I checked:").
+    if (SECTION_END.test(l) || (/^[^\s#*\-\d].*:\s*$/.test(l) && !ITEM.test(l))) break;
     if (ITEM.test(l)) out.push(l);
   }
   return out;
@@ -22,8 +24,12 @@ export function findings(text) {
 
 // Findings that count against a clean control: everything not labelled Nit
 // or Pre-existing.
+// A review that tags its findings is judged by its tags: only [Important]
+// counts. An untagged review counts every finding.
 export function important(text) {
-  return findings(text).filter((l) => !/\[(nit|pre-existing)\]/i.test(l));
+  const items = findings(text);
+  const tagged = items.some((l) => /\[(important|nit|pre-existing)\]/i.test(l));
+  return items.filter((l) => (tagged ? /\[important\]/i.test(l) : true));
 }
 
 export function verdict(text) {
