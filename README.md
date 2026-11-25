@@ -95,7 +95,7 @@ Why no estimates? Agents miss their own runtimes by a typical factor of 2.9 (Age
 | Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
 | Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
 
-Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. A sixth, `rules`, only logs for now: it notes edits to `CLAUDE.md`, `REVIEW.md`, `.claude/` and `.github/workflows/`, so you can decide from real data whether it should ask. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
+Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. A sixth, `rules`, asks before an edit to a CI workflow under `.github/workflows/`, since workflows run with your repo's secrets. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` only get logged: editing CLAUDE.md is usually ordinary work, and Claude Code already asks before writes to `.claude/`. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
 
 ## The CLI
 
@@ -136,9 +136,9 @@ The full report, with every caveat, is [evals/results/REPORT.md](evals/results/R
 - the fixtures are small
 - the person who wrote jig wrote the tasks too
 
-All runs used Claude Opus 5.5 and Claude Code 2.1.330, on 2026-11-25. Each arm ran isolated from user skills, plugins and MCP servers.
+The task and trigger runs used Claude Opus 5.5, and the reviewer eval used Sonnet 5.5 (the default `claude -p` model in an isolated config), all on Claude Code 2.1.330 on 2026-11-25. Each arm ran isolated from user skills, plugins and MCP servers.
 
-**Task evals.** There are eight fixture repos, each with one seeded trap. Commands grade them: hidden tests, `git diff` and `jig lint`. Four graders also match a regex against the final message.
+**Task evals.** There are nine fixture repos, each with one seeded trap. The ninth, writing a plan file, ran on jig only. Commands grade them: hidden tests, `git diff` and `jig lint`. Four graders also match a regex against the final message.
 
 | | none | jig | plan mode* | superpowers |
 |---|---|---|---|---|
@@ -172,10 +172,10 @@ node evals/reviewer/run.mjs --runs 3
 ## Limits
 
 - **Untested so far:**
-  - models other than Opus 5.5
+  - models other than Opus 5.5 and Sonnet 5.5
   - repos bigger than a few files
-  - a multi-session build run end to end
-  - self-review against fresh-context review
+  - a multi-session build run end to end (one live session has driven the hooks: `node evals/hooks-live.mjs`)
+  - fresh review beating self-review on more than one held-out case
   - plans rated by people
 - **The hooks are Claude Code only.** The skills and plan files are plain markdown, but the skills point at `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code fills in.
 - **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.

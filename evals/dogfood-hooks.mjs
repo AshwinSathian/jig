@@ -104,6 +104,9 @@ scenario('owner-requested CLAUDE.md and settings edits', ['rules', 'rules'], (s)
   hook('pre-edit', s, { tool_name: 'Edit', tool_input: { file_path: file('CLAUDE.md'), old_string: '#', new_string: '#' } });
   hook('pre-edit', s, { tool_name: 'Edit', tool_input: { file_path: file('.claude/settings.json'), old_string: '{', new_string: '{' } });
 });
+scenario('edit a CI workflow', ['rules'], (s) => {
+  hook('pre-edit', s, { tool_name: 'Write', tool_input: { file_path: file('.github/workflows/jig-dogfood.yml'), content: 'on: push\n' } });
+});
 scenario('mark the plan shipped', ['freeze'], (s) => {
   hook('pre-edit', s, { tool_name: 'Edit', tool_input: { file_path: plan, old_string: 'Status: building', new_string: 'Status: shipped' } });
 });

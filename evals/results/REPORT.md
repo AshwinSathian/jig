@@ -1,6 +1,6 @@
 # jig eval report
 
-We ran everything on 2026-11-25 on Claude Code 2.1.330 with the account's default model (Claude Opus 5.5). Every arm ran with `--setting-sources project,local --strict-mcp-config`, so no user skills, plugins or MCP servers loaded except the arm's own. Raw results are the JSON files next to this report.
+We ran everything on 2026-11-25 on Claude Code 2.1.330. The task and trigger evals ran on the account's default model (Claude Opus 5.5). The reviewer eval in its own section ran on Sonnet 5.5. Every arm ran with `--setting-sources project,local --strict-mcp-config`, so no user skills, plugins or MCP servers loaded except the arm's own. Raw results are the JSON files next to this report.
 
 **Read this as a smoke test, not a benchmark.** Most cells are one run, the fixture repos are small, and every task was written by the same author as jig. A one-task difference between arms is inside the noise.
 
@@ -81,19 +81,19 @@ The rubric does show up in one place, and it accounts for the whole tuning gap. 
 
 What went wrong first, and what that means for the numbers:
 - **The first "clean" control wasn't clean.** Its CLI had no data, and its flag parsing rejected `--json`. All three arms found both, which counts as recall on defects nobody planted, not as false positives. I fixed the fixture and reran only the control, so the table's control column comes from the second run (`reviewer-2026-11-251620.json`). Recall comes from the first (`reviewer-2026-11-251617.json`).
-- **Rounds-to-pass isn't measured.** The fresh reviewer re-reviewed the tuning plan after one canned fix and never returned ready in 3 runs. It kept finding real gaps in my "fixed" plan (files missing from Touch), and in one run it wrongly said the checks were undefined. A single fix can only pass at round 2, so this needs a builder in the loop, and that eval doesn't exist yet. It did behave as specified across rounds: it marked earlier findings fixed or still open, and in 1 of 3 runs it returned rethink after round 3.
+- **Rounds-to-pass is dropped as a metric.** With no fixed standard for "ready", the number measures the builder and the reviewer together, and a lower number can just mean a laxer reviewer. The fresh reviewer re-reviewed the tuning plan after one canned fix and never returned ready in 3 runs. It kept finding real gaps in my "fixed" plan (files missing from Touch), and in one run it wrongly said the checks were undefined. The loop is now reported as round behaviour, which tests the S8 contract. That turned up a gap: in round 3, with Important findings still open, the reviewer returned rethink in only 1 of 3 runs, and fix first in the other 2. The instruction said "after round 3", which can be read as a round 4 that never comes. It now says "in round 3". No paid run has checked the new wording yet.
 - **Cost:** $3.70 for both runs, plus $1.21 for four dry runs. Per-review costs in the first file are wrong, because parallel reviews shared a running total. That's fixed, and the second file is right, at about $0.07 to $0.10 a review.
 
 `node evals/reviewer/run.mjs --regrade <file>` re-scores saved reviews with the current grader without spending anything. The false-positive counter took four fixes before it matched the raw text. The tests in `test/reviewer-grade.test.mjs` pin each one.
 
 ## Not verified
 
-- Any result on a model other than Claude Opus 5.5.
+- Any result on a model other than Claude Opus 5.5 (task and trigger evals) or Sonnet 5.5 (reviewer eval).
 - More than 3 runs per cell, or any confidence interval.
 - Repositories larger than a few files, or tasks longer than one session.
-- Execution of a full multi-slice plan across sessions with the build skill and the Stop hook in a live run. The hooks are covered by unit tests (`test/hooks.test.mjs`), not by an end-to-end eval.
+- Execution of a full multi-slice plan across sessions with the build skill. One live session has driven the hooks: `node evals/hooks-live.mjs` (2026-11-25, 11 of 11, $0.09). Each step is tied to the tool and file it names, and each payload field the hooks read decides an outcome. An Edit's old and new strings give a freeze entry. A Write's content gives a freeze entry, and its path a protects entry. A Bash command shaped like an install gives an install entry. Adding a check raises nothing. The first version of the script (8 of 8) couldn't tell a wrong Write `content` or Bash `command` shape from a right one. The diff review caught that, and the script was tightened.
 - Fresh-context review beating self-review on anything other than naming one-way doors. With n=3 and one held-out case, every arm found everything.
-- Rounds-to-pass with a real builder in the loop.
+- Whether the reviewer now returns rethink in round 3 as reworded.
 - Human-judged plan quality. No person has rated the plans.
 
 ## Reproduce

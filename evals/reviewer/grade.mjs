@@ -51,16 +51,18 @@ export function grade(text, c) {
   };
 }
 
-// Rounds until the reviewer returns ready (1-based), or null if it never did.
-export function roundsToPass(verdicts) {
-  const i = verdicts.findIndex((v) => v === 'ready');
-  return i === -1 ? null : i + 1;
+// Round behaviour, not a metric: with no fixed standard for "ready", how many
+// rounds a plan takes measures builder and reviewer together. What the loop
+// does test is S8's contract: the verdict sequence, and rethink only once
+// round 3 still has open findings.
+export function roundBehaviour(verdicts) {
+  return { sequence: verdicts.join(' > '), passed: verdicts.includes('ready'), rethinkAfterRound3: verdicts.length >= 3 && verdicts[2] === 'rethink', rethinkEarly: verdicts.slice(0, 2).includes('rethink') };
 }
 
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 // Per arm: recall on the held-out test set (tuning reported apart), false
-// positives per clean-control run, rounds-to-pass, a per-defect hit table and
+// positives per clean-control run, round behaviour, a per-defect hit table and
 // the control verdicts. Invalid runs are counted, not scored.
 export function summarize(results) {
   const arms = [...new Set(results.map((r) => r.arm))];
@@ -68,7 +70,7 @@ export function summarize(results) {
     const all = results.filter((r) => r.arm === arm);
     const rs = all.filter((r) => r.grade.valid !== false);
     const recall = (set) => mean(rs.filter((r) => r.set === set && r.grade.recall !== null).map((r) => r.grade.recall));
-    const rounds = rs.filter((r) => r.rounds).map((r) => roundsToPass(r.rounds));
+    const rounds = rs.filter((r) => r.rounds).map((r) => roundBehaviour(r.rounds));
     const defects = {};
     for (const r of rs) for (const f of r.grade.found ?? []) {
       const k = `${r.set} ${f.label}`;
@@ -80,8 +82,7 @@ export function summarize(results) {
       tuningRecall: recall('tuning'),
       controlFalsePositives: mean(rs.filter((r) => r.set === 'control').map((r) => r.grade.falsePositives)),
       controlVerdicts: rs.filter((r) => r.set === 'control').map((r) => r.grade.verdict),
-      roundsToPass: mean(rounds.filter((n) => n !== null)),
-      neverPassed: rounds.filter((n) => n === null).length,
+      rounds: rounds.length ? { runs: rounds.length, sequences: rounds.map((r) => r.sequence), rethinkAfterRound3: rounds.filter((r) => r.rethinkAfterRound3).length, rethinkEarly: rounds.filter((r) => r.rethinkEarly).length } : null,
       defects,
       invalid: all.length - rs.length,
       costUsd: all.reduce((a, r) => a + (r.costUsd ?? 0), 0),

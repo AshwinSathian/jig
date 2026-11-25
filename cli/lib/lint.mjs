@@ -158,7 +158,8 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
         for (const id of ids) if (!knownIds.has(id)) err('J10', s.fields.checks.line, `check ${id} is not in checks.json`);
         // jig verify runs a slice's checks by their `slice` field, so a check
         // listed here but owned by another slice never runs for this one.
-        for (const id of ids) if (knownIds.has(id) && checkSlice.get(id) !== s.id) warn('J24', s.fields.checks.line, `check ${id} belongs to ${checkSlice.get(id)}, so \`jig verify\` won't run it for ${s.id}; give ${s.id} its own check`);
+        // A [done] slice never runs its checks again, so J24 looks ahead only.
+        if (s.state !== 'done') for (const id of ids) if (knownIds.has(id) && checkSlice.get(id) !== s.id) warn('J24', s.fields.checks.line, `check ${id} belongs to ${checkSlice.get(id)}, so \`jig verify\` won't run it for ${s.id}; give ${s.id} its own check`);
       } else if (ids.length && checks) {
         err('J10', s.fields.checks.line, `slice ${s.id} names check IDs but there is no checks.json (a brief plan may give commands in backticks instead)`);
       }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0 (2026-11-25)
+
+- **CI workflow edits ask.** The `rules` gate now asks before an edit under `.github/workflows/`, because a workflow runs in CI with the repo's secrets. `JIG_GATES=observe:rules` turns that back into a log entry. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` are still only logged, since Claude Code already prompts for `.claude/` writes.
+- **The reviewer returns `rethink` in round 3.** The instruction used to say "after round 3", and in the eval it returned `rethink` in only 1 of 3 runs where Important findings were still open. It now says "in round 3", and the build skill matches. No paid run has checked the new wording yet.
+- **A live hook smoke test.** `node evals/hooks-live.mjs` drives one real Claude Code session against a scratch repo with jig loaded, and checks that real Edit, Write and Bash calls reach each gate in the shape the hooks parse. Each step is tied to the file it names, and every payload field the hooks read decides an outcome. It passed 11 of 11 for $0.09.
+- **Rounds-to-pass is gone from the reviewer eval.** With no fixed standard for "ready", the number measured the builder and the reviewer together. The round loop now reports round behaviour: the verdict sequence, and whether `rethink` came in round 3.
+- A workflow path with Windows separators now asks too. So does one under a `protects` entry when only `protects` is observed.
+- **Edit hooks see paths the way git does.** A file reached through a symlink of the repo (macOS `/tmp` and `/private/tmp`) was silently ignored by every edit gate. Paths are now resolved before any check.
+- `jig lint` no longer raises J24 on `[done]` slices. A finished slice never runs its checks again, so the warning only helped going forward.
+
 ## 2.2.0 (2026-11-25)
 
 The rest of the verification review (rows 6 to 10).

@@ -3,8 +3,8 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
-import { join, relative, isAbsolute } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
+import { join, relative, isAbsolute, dirname, basename } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
@@ -101,9 +101,11 @@ function sameFile(a, b) {
 // code-review post treats them, and CI workflows, as paths a person reads.
 // Claude Code also reads CLAUDE.md and .claude/ below the root. Compared in
 // lower case: on macOS and Windows `.CLAUDE/` is the same directory.
+const pathParts = (rel) => rel.toLowerCase().split(/[\\/]/);
+const isWorkflow = (rel) => pathParts(rel).slice(0, 2).join('/') === '.github/workflows';
 const isRuleFile = (rel) => {
-  const parts = rel.toLowerCase().split(/[\\/]/);
-  return ['claude.md', 'review.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || parts.slice(0, 2).join('/') === '.github/workflows';
+  const parts = pathParts(rel);
+  return ['claude.md', 'review.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || isWorkflow(rel);
 };
 // Any case (Windows env names ignore it), or JIG followed by an escape.
 const SWITCHES = /\bjig_(gates|hooks_off)\b|\bjig\\[xuU_]/i;
@@ -115,10 +117,62 @@ function switchesIn(text) {
   return s.match(SWITCHES)?.[0] ?? null;
 }
 
+// The path as git sees it. The directory part is resolved (nearest existing
+// ancestor), so a file reached through a symlink of the repo (macOS /tmp and
+// /private/tmp) maps to the same repo-relative path. The file name is kept as
+// the edit spelled it: a symlink named CLAUDE.md is still a rule file.
+function underRealDir(abs) {
+  let dir = dirname(abs); const rest = [basename(abs)];
+  while (!existsSync(dir) && dirname(dir) !== dir) { rest.unshift(basename(dir)); dir = dirname(dir); }
+  try { return join(realpathSync(dir), ...rest); } catch { return abs; }
+}
+
+// A symlinked file is judged twice, by its own name and by its target, and
+// the first ask wins: an edit through it changes the target.
 export function preEdit(input) {
-  const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
+  const key = input.tool_input?.file_path !== undefined ? 'file_path' : 'notebook_path';
+  const raw = input.tool_input?.[key];
+  if (!raw) return guardPath(input);
   const root = rootOf(input);
-  const abs = file ? (isAbsolute(file) ? file : join(root, file)) : null;
+  const given = isAbsolute(raw) ? raw : join(root, raw);
+  const named = underRealDir(given);
+  const hops = linkTargets(named);
+  if (hops === null) return ask(undefined, `jig: ${relative(root, named)} is a symlink jig can't resolve (a loop or an unreadable link), so it can't tell what this edit would change.`);
+  // Spellings to judge: resolved directories with the edit's file name, the
+  // path exactly as given (keeps an in-repo directory link's name, such as a
+  // linked .github/), and every hop of a symlink chain, including a target
+  // that doesn't exist yet (a Write through a dangling link creates it).
+  const paths = [...new Set([named, given, ...hops])];
+  const at = (p) => ({ ...input, tool_input: { ...input.tool_input, [key]: p } });
+  const asks = (o) => Boolean(o?.decision || o?.hookSpecificOutput?.permissionDecision);
+  const outs = paths.map((p) => guardPath(at(p)));
+  // An ask observe mode can't silence beats an enforced one, which beats an
+  // observed one: whichever is returned is what runHook acts on.
+  return outs.find((o) => asks(o) && !o.gate) ?? outs.find((o) => asks(o) && !observed(o.gate)) ?? outs.find(asks) ?? outs[0];
+}
+
+// The paths a symlink chain passes through, each under a real directory.
+// [] when the path isn't a link; null when the chain can't be followed.
+function linkTargets(p) {
+  const out = [];
+  let cur = p;
+  for (let i = 0; i < 40; i++) {
+    let st;
+    try { st = lstatSync(cur); } catch { return out; } // missing: the chain ends here
+    if (!st.isSymbolicLink()) return out;
+    let to;
+    try { to = readlinkSync(cur); } catch { return null; }
+    cur = underRealDir(isAbsolute(to) ? to : join(dirname(cur), to));
+    out.push(cur);
+  }
+  return null;
+}
+
+function guardPath(input) {
+  const key = input.tool_input?.file_path !== undefined ? 'file_path' : 'notebook_path';
+  const raw = input.tool_input?.[key];
+  const root = rootOf(input);
+  const abs = raw ? (isAbsolute(raw) ? raw : join(root, raw)) : null;
   const rel = abs ? relative(root, abs) : null;
   // Turning jig's gates off from a rule file always asks, and has no gate
   // name, so observe mode can't silence it. Judged on the whole file after
@@ -135,9 +189,21 @@ export function preEdit(input) {
     }
   }
   const out = guardEdit(input);
-  if (out?.gate || !rel || !isRuleFile(rel)) return out;
-  // Observe-only until the owner decides from the log, so log here and keep
-  // any scope warning.
+  // A workflow edit keeps its own ask even when another gate on the same edit
+  // (protects, freeze) is only being observed: log that one, ask for rules.
+  if (rel && isWorkflow(rel) && out?.gate && observed(out.gate)) {
+    observe(input, 'pre-edit', out.gate, out);
+  } else if (out?.gate || !rel || !isRuleFile(rel)) return out;
+  // CI workflows run with the repo's secrets and are rarely part of normal
+  // work, so an edit asks (JIG_GATES=observe:rules turns it into a log entry).
+  // CLAUDE.md, REVIEW.md and .claude/ are only logged: CLAUDE.md edits are
+  // usually legitimate, and Claude Code already prompts for .claude/ writes.
+  if (isWorkflow(rel)) {
+    const a = ask('rules', `jig: ${rel} is a CI workflow. It runs in CI with the repo's secrets, so a person should read this change.`);
+    const ctx = out?.gate ? null : out?.hookSpecificOutput?.additionalContext;
+    if (ctx) a.hookSpecificOutput.additionalContext = ctx;
+    return a;
+  }
   observe(input, 'pre-edit', 'rules', ask('rules', `jig: ${rel} is a rule file (it tells agents or reviewers what to do). A person should read changes to it.`));
   return out;
 }
@@ -323,7 +389,8 @@ const HANDLERS = { 'session-start': sessionStart, 'pre-edit': preEdit, 'pre-bash
 // JIG_GATES=observe logs every ask and block to .git/jig/observe.jsonl and
 // prints nothing; observe:<gate>,<gate> does that for the named gates only.
 // Use it to count false positives before a gate enforces. Gates: protects,
-// freeze, install, tree, rounds, and rules (observe-only for now).
+// freeze, install, tree, rounds, and rules (asks for CI workflows, logs the
+// other rule files).
 function observed(gate) {
   const v = (process.env.JIG_GATES ?? '').trim();
   if (v === 'observe') return true;

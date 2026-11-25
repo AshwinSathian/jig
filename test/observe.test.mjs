@@ -1,7 +1,7 @@
 // Observe mode: a gate logs what it would have asked or blocked, and prints nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { hook, planRepo, base } from './helpers.mjs';
 import { tempRepo } from './verify.test.mjs';
@@ -50,13 +50,28 @@ test('observe: context-only output is unchanged', () => {
   assert.deepEqual(log(dir), []);
 });
 
-test('rules gate: rule-file edits are logged, not asked, even with no plan and no JIG_GATES', () => {
+// Spec changed 2026-11-25 (open-items plan): workflows now ask; the other rule files stay logged.
+test('rules gate: CLAUDE.md, REVIEW.md and .claude/ edits are logged, not asked, even with no plan and no JIG_GATES', () => {
   const { dir } = tempRepo();
-  for (const f of ['CLAUDE.md', 'REVIEW.md', '.claude/settings.json', '.github/workflows/ci.yml']) {
+  for (const f of ['CLAUDE.md', 'REVIEW.md', '.claude/settings.json']) {
     assert.equal(hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, f), content: 'x' } })), null, f);
   }
   assert.equal(hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'src/x.js'), content: 'x' } })), null);
-  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.file}`), ['rules CLAUDE.md', 'rules REVIEW.md', 'rules .claude/settings.json', 'rules .github/workflows/ci.yml']);
+  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.file}`), ['rules CLAUDE.md', 'rules REVIEW.md', 'rules .claude/settings.json']);
+});
+
+test('rules gate: a workflow edit asks, keeps any scope warning, and observe:rules turns it into a log entry', () => {
+  const { dir } = planRepo();
+  const wf = (env) => hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/ci.yml'), content: 'on: push\n' } }), env);
+  const out = wf();
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /\.github\/workflows\/ci\.yml/);
+  assert.match(out.hookSpecificOutput.additionalContext ?? '', /outside S1's Touch list/);
+  assert.deepEqual(log(dir), [], 'an enforced ask is not an observe entry');
+  assert.equal(wf({ JIG_GATES: 'observe:rules' }), null);
+  assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.decision} ${e.file}`), ['rules ask .github/workflows/ci.yml']);
+  const nested = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'docs/.github/workflows/x.yml'), content: 'x' } }));
+  assert.equal(nested?.hookSpecificOutput?.permissionDecision, undefined, 'only the root workflows folder asks');
 });
 
 test('rules gate: nested rule files count, and a scope warning survives the log entry', () => {
@@ -102,4 +117,74 @@ test('switches gate: changing an existing switch value, or spelling it another w
   assert.ok(asks({ tool_name: 'Edit', tool_input: { file_path: join(dir, '.claude/settings.json'), old_string: '""', new_string: '"observe"' } }), 'value change');
   assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/ci.yml'), content: 'env:\n  "JIG\\x5fHOOKS_OFF": all\n' } }), 'YAML escape');
   assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, 'CLAUDE.md'), content: 'set jig_hooks_off=all' } }), 'other case');
+});
+
+test('rules gate: a workflow path with Windows separators still asks', () => {
+  const { dir } = tempRepo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: `${dir}/.github\\workflows\\ci.yml`, content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+});
+
+test('rules gate: a protected workflow still asks when only protects is observed', () => {
+  const { dir, g } = planRepo();
+  const p = join(dir, 'docs/plans/demo/checks.json');
+  const c = JSON.parse(readFileSync(p, 'utf8'));
+  c.checks[0].protects.push('.github/workflows/');
+  writeFileSync(p, JSON.stringify(c)); g('add', '-A'); g('commit', '-qm', 'protect workflows');
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/new.yml'), content: 'x' } }), { JIG_GATES: 'observe:protects' });
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask', 'observing protects must not silence the workflow ask');
+  assert.deepEqual(log(dir).map((e) => e.gate), ['protects']);
+});
+
+test('pre-edit: a path reached through a symlink of the repo root is still guarded', () => {
+  const { dir } = planRepo();
+  const link = `${dir}-link`;
+  symlinkSync(dir, link);
+  try {
+    const prot = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(link, 'test/a.accept.test.js'), old_string: '// spec', new_string: '// x' } }));
+    assert.equal(prot?.hookSpecificOutput?.permissionDecision, 'ask', 'protected test via symlink');
+    const wf = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(link, '.github/workflows/ci.yml'), content: 'x' } }));
+    assert.equal(wf?.hookSpecificOutput?.permissionDecision, 'ask', 'new workflow via symlink');
+  } finally { unlinkSync(link); }
+});
+
+test('pre-edit: a symlinked file is judged by its own name and by its target', () => {
+  const { dir } = planRepo();
+  writeFileSync(join(dir, 'notes.md'), '# notes\n');
+  symlinkSync('notes.md', join(dir, 'CLAUDE.md'));
+  const sw = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'CLAUDE.md'), content: 'export JIG_HOOKS_OFF=all\n' } }));
+  assert.equal(sw?.hookSpecificOutput?.permissionDecision, 'ask', 'a switch written through a CLAUDE.md symlink');
+  symlinkSync('a.accept.test.js', join(dir, 'test/alias.js'));
+  const prot = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'test/alias.js'), content: 'x' } }));
+  assert.equal(prot?.hookSpecificOutput?.permissionDecision, 'ask', 'a protected test written through another name');
+});
+
+test('pre-edit: a workflow reached through a linked .github directory still asks', () => {
+  const { dir } = tempRepo();
+  mkdirSync(join(dir, 'ci/workflows'), { recursive: true });
+  symlinkSync('ci', join(dir, '.github'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/x.yml'), content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+});
+
+test('pre-edit: a dangling symlink is judged by where it would write', () => {
+  const { dir } = tempRepo();
+  symlinkSync('.github/workflows/new.yml', join(dir, 'notes.md'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'notes.md'), content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+  symlinkSync('loop-b', join(dir, 'loop-a')); symlinkSync('loop-a', join(dir, 'loop-b'));
+  const loop = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'loop-a'), content: 'x' } }));
+  assert.equal(loop?.hookSpecificOutput?.permissionDecision, 'ask', 'a link that cannot be resolved fails closed');
+});
+
+test('pre-edit: across spellings, an ask that must hold beats an observed one', () => {
+  const { dir } = planRepo();
+  // By name: the protected test (observed here, and judged first). By target:
+  // CLAUDE.md, whose new text sets a switch, which must always ask.
+  writeFileSync(join(dir, 'CLAUDE.md'), '# rules\n');
+  unlinkSync(join(dir, 'test/a.accept.test.js'));
+  symlinkSync('../CLAUDE.md', join(dir, 'test/a.accept.test.js'));
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'test/a.accept.test.js'), content: 'JIG_GATES=observe\n' } }), { JIG_GATES: 'observe:protects' });
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /JIG_GATES/);
 });
