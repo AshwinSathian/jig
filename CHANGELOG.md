@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0 (2026-11-25)
+
+This release closes the five gaps in `docs/research/2026-11-verification-review.md`. Each fix started with a test that reproduced the gap on 2.0.1.
+
+- **A slice can't quietly loosen its own checks.** Once a plan is approved, the edit hook asks before an edit drops a check from `checks.json`, changes its command, expectation, kind, timeout, `fast` flag or slice, or removes a protected path. Adding checks and protected paths doesn't prompt. Edits that get around the hook (Bash, another editor) show up in `jig verify`, which names every loosened check in its output and in the Log line.
+- **Evidence is tied to the files it checked.** `jig verify` records `HEAD` and a fingerprint of the working tree, and the Stop hook compares trees rather than edit timestamps. A session that changes code only through `sed`, a codegen script or `git apply` now has to verify before it finishes. A session that only reads a repo that was already dirty doesn't get blocked. Committing after verifying keeps the evidence current. The fingerprint never runs `git add`, so a repo's clean filters can't run from a hook. On a 2,800-file monorepo the hook's tree hash takes about 135 ms.
+- **Three rounds, then you.** The Stop hook counts failing verify runs per check. Each new failure blocks once, and on the third in a row it tells the agent to stop, say what it tried, and leave the decision to you. 2.0 blocked once per session and let every later failure through.
+- **No flaky-test workarounds in checks.** `jig lint` warns on a check that retries or sleeps (J22) and rejects one that can't fail, such as `npm test || true` or a pipe into `tail` without `pipefail` (J23). J24 warns when a slice lists a check that belongs to another slice, since `jig verify` won't run it there.
+- **Every slice commit says how it was verified.** `jig verify --record` prints a `Verified:` line, and the build skill puts it, or `Verified: none (<reason>)`, in each slice commit. `git log --grep 'Verified: none'` finds the rest.
+- **Observe mode.** `JIG_GATES=observe` or `observe:<gate>,...` makes gates log to `.git/jig/observe.jsonl` instead of asking or blocking. A new `rules` gate logs edits to `CLAUDE.md`, `REVIEW.md`, `.claude/` and `.github/workflows/` without asking yet. An edit to those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks.
+- Evidence written by 2.0 has no tree fingerprint. The first stop after upgrading asks for one fresh `jig verify`.
+
 ## 2.0.1 (2026-11-25)
 
 - First release published from GitHub Actions with npm trusted publishing and provenance.

@@ -91,11 +91,11 @@ Why no estimates? Agents miss their own runtimes by a typical factor of 2.9 (Age
 | Hook | What it does | What it never does |
 |---|---|---|
 | SessionStart | One paragraph telling the model to plan code changes with jig, plus the state of any active plan | Run anything from the repo |
-| Before an edit | **Asks** before a file a check protects (an acceptance test) is edited, and also when `checks.json` is invalid. Notes once per file when an edit falls outside the current slice | Return `allow`, so your own permission prompts still apply |
+| Before an edit | **Asks** before a file a check protects (an acceptance test) is edited, and also when `checks.json` is invalid. Once a plan is approved, also asks when an edit would loosen `checks.json` (drop a check, change its command or expectation, unprotect a file) or move the plan out of approved or building. New checks and new protected files go through without a prompt. Notes once per file when an edit falls outside the current slice | Return `allow`, so your own permission prompts still apply |
 | Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
-| Stop | If files changed since the last `jig verify`, asks the agent to run it and report the result | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
+| Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
 
-Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
+Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. A sixth, `rules`, only logs for now: it notes edits to `CLAUDE.md`, `REVIEW.md`, `.claude/` and `.github/workflows/`, so you can decide from real data whether it should ask. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
 
 ## The CLI
 
@@ -103,9 +103,10 @@ Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nu
 
 ```
 jig new <slug> --tier brief|full|program --title "..."   start a plan with the baseline commit filled in
-jig lint [path ...] [--no-paths]                         check plans against the format (rules J01 to J21)
+jig lint [path ...] [--no-paths]                         check plans against the format (rules J01 to J24)
 jig status                                               active plans, their Now line, the current slice
 jig verify [--slice S2] [--fast] [--record]              run checks.json; --record writes the result to the Log
+                                                         and prints a Verified: line for the commit
 jig doctor [--ack]                                       report harness gaps; --ack marks the repo's agent config as read
 ```
 
@@ -200,7 +201,7 @@ claude plugin uninstall jig@jig                                         # remove
 
 - **jig never fires:** check `claude plugin details jig` lists the hooks, and that `JIG_NUDGE` isn't `off`.
 - **An install keeps asking:** that's the pre-bash hook. Approve it once the package checks out, or set `JIG_HOOKS_OFF=pre-bash`.
-- **The agent won't finish:** the Stop hook wants `jig verify` evidence. Run `jig verify --fast --record`, or tell it plainly which check can't run, and why.
+- **The agent won't finish:** the Stop hook wants `jig verify` evidence for the files as they are now. Run `jig verify --fast --record`, or tell it plainly which check can't run, and why. If a check has failed three times running, the hook asks the agent to stop and report, and the call on what happens next is yours.
 - **Two planning workflows at once:** superpowers' skills also trigger on planning requests. In our trigger eval jig fired first on every planning prompt with both installed, but if you'd rather have one, `claude plugin disable superpowers@claude-plugins-official` turns superpowers off.
 - **A plan fails lint:** `jig lint <path>` prints each rule ID and line. The rules are in [references/plan-format.md](references/plan-format.md).
 

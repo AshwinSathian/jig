@@ -2,7 +2,7 @@
 
 jig runs code in three places:
 
-- **Hooks**, on every session start, file edit, Bash call and stop, as `node cli/jig.mjs hook <name>`. They read the hook's JSON input, the repo's `docs/plans/`, and their own state under `.git/jig/`. They run `git` with `core.fsmonitor` and `core.hooksPath` disabled, so a checkout's git config can't start programs. They never run commands from the repo, never return `allow`, and never make network requests.
+- **Hooks**, on every session start, file edit, Bash call and stop, as `node cli/jig.mjs hook <name>`. They read the hook's JSON input, the repo's `docs/plans/`, and their own state under `.git/jig/`. While a plan is active they also read every file `git ls-files` lists, tracked and untracked, to fingerprint the working tree. The file contents are hashed and never stored. They run `git` with `core.fsmonitor` and `core.hooksPath` disabled, so a checkout's git config can't start programs, and they never run `git add`, because that would run the repo's clean filters. They never run commands from the repo, never return `allow`, and never make network requests.
 - **`jig verify`**, which runs the commands in a plan's `checks.json`. Those commands come from the repository, so treat them like any script in it. The skills never pre-approve `jig verify`, so it goes through your normal Bash permissions.
 - **`jig doctor --ack`** writes one file per repo under `~/.config/jig/acks/` (or `$JIG_HOME/acks/`). Acks live outside the repo on purpose, so a repo can't ship one that silences its own warning.
 - **`jig doctor`, `lint`, `status` and `new`**, which read files under the repo. `new` writes the plan skeleton it's asked for. The others write nothing.
