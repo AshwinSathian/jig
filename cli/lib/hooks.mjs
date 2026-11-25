@@ -3,11 +3,11 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary } from './status.mjs';
-import { loadChecks } from './checks.mjs';
+import { loadChecks, validateChecks } from './checks.mjs';
 import { lastEvidence } from './verify.mjs';
 
 const off = (name) => {
@@ -32,7 +32,10 @@ function sessionState(root, input) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const file = join(dir, `${sid(input)}.json`);
   let data = { editedAt: 0, warned: [] };
-  try { data = { ...data, ...JSON.parse(readFileSync(file, 'utf8')) }; } catch {}
+  if (existsSync(file)) {
+    try { data = { ...data, ...JSON.parse(readFileSync(file, 'utf8')) }; }
+    catch { process.stderr.write(`jig: ignoring unreadable session state ${file}\n`); }
+  }
   return { data, save: () => writeFileSync(file, JSON.stringify(data)) };
 }
 
@@ -70,6 +73,18 @@ export function preEdit(input) {
   if (!plans.length) return null;
   for (const { path } of plans) {
     const checks = loadChecks(path);
+    // Fail closed on the one guard that protects files: if checks.json can't
+    // be read or validated, we can't tell whether this file is protected.
+    const problems = checks.exists ? (checks.error ? [checks.error] : validateChecks(checks.data)) : [];
+    if (problems.length) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'ask',
+          permissionDecisionReason: `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`,
+        },
+      };
+    }
     for (const c of checks.data?.checks ?? []) {
       if ((c.protects ?? []).some((p) => pathMatches(rel, p))) {
         return {
@@ -176,7 +191,9 @@ export function runHook(name) {
     const out = fn(readStdin());
     if (out) emit(out);
   } catch (e) {
-    // A broken hook must never block the user's work.
+    // Guardrails, not a security boundary (Bash can edit files without Edit):
+    // an unexpected error must not block all work. The protected-file check
+    // above fails closed on its own known failure mode (invalid checks.json).
     process.stderr.write(`jig hook ${name}: ${e.message}\n`);
   }
   return 0;

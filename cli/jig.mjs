@@ -49,7 +49,7 @@ const BOOL = new Set(['json', 'fast', 'record', 'help']);
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   // boolean flags must not swallow the next positional
-  const { pos, flags } = parseArgs(rest.flatMap((a, i, arr) => (BOOL.has(a.replace(/^--/, '')) && a.startsWith('--') ? [a + '=true'] : [a])));
+  const { pos, flags } = parseArgs(rest.flatMap((a) => (BOOL.has(a.replace(/^--/, '')) && a.startsWith('--') ? [a + '=true'] : [a])));
   const cwd = process.cwd();
   const root = repoRoot(cwd) ?? cwd;
 

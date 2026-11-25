@@ -64,6 +64,16 @@ test('pre-edit: in-scope edit is silent; out-of-scope warns once per file, with 
   assert.equal(hook('pre-edit', base(dir, { tool_input: { file_path: join(dir, 'src/b.js') } })), null, 'second warning suppressed');
 });
 
+test('pre-edit: invalid checks.json fails closed (asks)', () => {
+  const { dir } = planRepo();
+  writeFileSync(join(dir, 'docs/plans/demo/checks.json'), '{"version":1,"checks":[{"id":"C1","protects":"test/"}]}');
+  const out = hook('pre-edit', base(dir, { tool_input: { file_path: join(dir, 'src/a.js') } }));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /invalid/);
+  writeFileSync(join(dir, 'docs/plans/demo/checks.json'), '{not json');
+  assert.equal(hook('pre-edit', base(dir, { tool_input: { file_path: join(dir, 'src/a.js') } })).hookSpecificOutput.permissionDecision, 'ask');
+});
+
 test('pre-edit: no active plan means no output', () => {
   const { dir } = tempRepo();
   assert.equal(hook('pre-edit', base(dir, { tool_input: { file_path: join(dir, 'x.js') } })), null);

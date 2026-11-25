@@ -1,7 +1,7 @@
 # jig v2: a planning and build harness for coding agents
 
 Status: building · Tier: full · Baseline: ddb3fdb · Updated: 2026-11-25
-Now: S2 in progress; S0 and S1 done.
+Now: S5 in progress; S0 to S4 done.
 
 ## Outcome
 jig replaces the `plan-engineering` skill. It is a Claude Code plugin that plans engineering work at any size, carries the plan through to verified code, and turns repeated failures into deterministic guardrails. Design detail is in [docs/design.md](../../design.md), and the evidence is in [the adversarial review](../../research/2026-11-adversarial-review.md).
@@ -46,25 +46,25 @@ Goal: the plan format is specified and `jig lint` enforces it.
 Touch: `references/plan-format.md`, `cli/jig.mjs`, `cli/lib/plan.mjs`, `cli/lib/lint.mjs`, `cli/lib/checks.mjs`, `cli/lib/scaffold.mjs`, `cli/lib/status.mjs`, `cli/lib/verify.mjs`, `cli/lib/git.mjs`, `test/lint.test.mjs`, `test/verify.test.mjs`, `evals/fixtures/plans/good`
 Checks: C1, C2, C3
 
-### S2: Plan skill and reviewer [doing]
+### S2: Plan skill and reviewer [done]
 Goal: the plan skill produces lintable plans at the right tier, and the reviewer finds seeded defects the author misses.
-Touch: `skills/plan/SKILL.md (new)`, `agents/jig-reviewer.md (new)`, `references/sizing.md (new)`, `references/failure-modes.md (new)`, `references/fundamentals.md (new)`, `references/security.md (new)`, `references/mechanisms.md (new)`, `references/safe-change.md (new)`, `.claude-plugin/plugin.json (new)`
+Touch: `skills/plan/SKILL.md`, `agents/jig-reviewer.md`, `references/`, `.claude-plugin/plugin.json`, `evals/triggers/`, `evals/lib/`
 Checks: C4, C6
 - Risk: the skill over-fires and slows small requests. Detect: the trigger and tier-0 evals in S5. Fallback: narrow the description, or cut tier 0 to one line.
 - Risk: superpowers fires instead of jig. Detect: the trigger-collision run in this slice. Fallback: document the conflict and suggest disabling superpowers' planning skills.
 
-### S3: Build skill and hooks [todo]
+### S3: Build skill and hooks [done]
 Goal: a fresh session resumes from the SessionStart line and finishes a slice with evidence; the hooks trip on their fixtures and stay quiet otherwise.
-Touch: `skills/build/SKILL.md (new)`, `hooks/hooks.json (new)`, `cli/lib/hooks.mjs (new)`, `test/hooks.test.mjs (new)`
+Touch: `skills/build/SKILL.md`, `hooks/hooks.json`, `cli/lib/hooks.mjs`, `test/hooks.test.mjs`
 Checks: C1
 - Risk: hooks ask too often and get switched off. Detect: more asks than trips in the fixtures. Fallback: downgrade to added context, with an env switch per hook.
 
-### S4: Guard skill and doctor [todo]
+### S4: Guard skill and doctor [done]
 Goal: repeated failures become hooks, lint rules or tests, and doctor reports harness gaps without changing anything.
-Touch: `skills/guard/SKILL.md (new)`, `cli/lib/doctor.mjs (new)`, `references/team.md (new)`, `test/doctor.test.mjs (new)`
+Touch: `skills/guard/SKILL.md`, `cli/lib/doctor.mjs`, `references/team.md`, `test/doctor.test.mjs`, `eslint.config.js`
 Checks: C1
 
-### S5: Evals, packaging, publish prep [todo]
+### S5: Evals, packaging, publish prep [doing]
 Goal: the evidence report exists, and the plugin installs from its own marketplace.
 Touch: `evals/run.mjs (new)`, `evals/tasks (new)`, `evals/triggers (new)`, `evals/results (new)`, `README.md (new)`, `.claude-plugin/marketplace.json (new)`, `.github/workflows/ci.yml (new)`
 Checks: C4, C5
@@ -78,3 +78,5 @@ Checks: C4, C5
 - 2026-11-25 15:43: jig verify S1: C1 pass; C2 pass; C3 pass
 - 2026-11-25: Trigger spike (S2). jig alone missed direct build prompts ("Build a CSV export endpoint": 0/3); superpowers' SessionStart prompt made them fire. Added a one-line SessionStart nudge: misses then fired 4/4, negatives stayed quiet 4/4. superpowers:brainstorming beat jig:plan on 1 of 7 planning prompts. A one-word typo fix never fires; the case now scores either way.
 - 2026-11-25: Hooks built ahead of S3 because the nudge needed them: session-start, pre-edit (protected tests ask, out-of-scope warns once), pre-bash (installs ask), stop (asks for verify evidence; never runs repo commands). 48 tests pass.
+- 2026-11-25: S2 closed without its produced-plans check (C6), which moves to S5 with the task evals so plans are produced once and graded once. S3 done: build skill on top of the hooks. S4 done: guard skill, `jig doctor` (D1 to D6, report only), team reference. A security review flagged the pre-edit hook failing open on a bad checks.json; it now asks instead. ESLint on jig's own code found an empty catch in the hooks, now fixed.
+- 2026-11-25 15:54: jig verify S1: C1 pass; C2 pass; C3 pass
