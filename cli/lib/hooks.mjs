@@ -47,7 +47,7 @@ export function pathMatches(rel, pattern) {
   return re.test(rel);
 }
 
-export const NUDGE = 'jig is installed: before changing code for an engineering task, use the jig:plan skill to plan it at the right size (a one-line fix is a four-line plan in chat; larger work gets a plan file with checks). Skip it for questions, explanations, reviews and debugging an unknown cause.';
+export const NUDGE = 'jig: for any request to change code in this repo, invoke the jig:plan skill first, before reading or editing files. For a one-line fix it is a four-line plan in chat and adds little; for anything ambiguous or risky it catches what a direct start misses. Skip it only for questions, explanations, reviews, and debugging an error whose cause is unknown.';
 
 export function sessionStart(input) {
   const root = rootOf(input);

@@ -1,0 +1,138 @@
+[
+  {
+    "name": "plain review",
+    "found": [
+      {
+        "label": "check that cannot fail (C1)",
+        "hit": false
+      },
+      {
+        "label": "duplicates formatCurrency",
+        "hit": true
+      },
+      {
+        "label": "unmarked one-way door (schema change)",
+        "hit": false
+      },
+      {
+        "label": "new route missing auth",
+        "hit": true
+      },
+      {
+        "label": "query per customer (N+1)",
+        "hit": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.078296,
+      "turns": 11,
+      "input": 8,
+      "cacheRead": 130708,
+      "cacheWrite": 10540,
+      "output": 2292
+    },
+    "text": "Defects in `docs/plans/notes/PLAN.md`, checked against the repo. I didn't edit anything.\n\n**Defects in the decisions**\n1. **Duplicate helper.** `src/lib/money.js` with `formatMoney(cents)` (Decisions, S2 Touch) repeats `formatCurrency(cents)` in `src/lib/format.js`. The plan should reuse the existing function.\n2. **N+1 query.** The plan builds the list by calling `db.getOrdersForCustomer(id)` once per customer. `src/db.js` already has `getOrderTotalsByCustomer()`, which returns a Map of totals. The \"simplest code\" reason is wrong. Use the existing function.\n3. **Migration conflict.** The plan adds a `notes` column to the customers table, but the Touch line for S1 lists a migration named `002_notes.sql`. That is ambiguous. Adding a column to `customers` (an ALTER) fits that filename. A separate notes table, a better fit for \"add notes\" and the one the route's POST would append to, would not. The plan doesn't say which. A single `notes` column also holds only one note per customer, so it can't store several notes added over time. That contradicts \"add notes\" and the route's POST.\n\n**Defects in the slices**\n4. **S1 wiring.** `src/app.js` only handles `GET /customers`. S1 adds `POST /customers/:id/notes` there, but `handle` does exact string matching on the path, so the plan needs to say how `:id` gets parsed. The plan also never says whether the route requires auth. The Outcome says \"Signed-in users\", so it should require auth, and the plan should say so.\n5. **S1 persistence.** `src/db.js` is a stub with no write methods, and the plan doesn't list it in Touch. S1 has to add something like `addNote`, so `src/db.js` needs to be there.\n6. **S2 wiring.** S2 creates `src/list.js`, but `GET /customers` in `src/app.js` is the list endpoint, and `src/app.js` isn't in S2's Touch. Nothing connects the new file to the route. The plan also doesn't say whether the list should show notes.\n\n**Defects in the checks**\n7. **C1 verifies nothing.** C1's command is `node -e \"process.exit(0)\"`, which always passes. S1 has no real check, so \"done\" is meaningless for it.\n8. **C2 verifies nothing.** C2 runs `node --test test/*.test.js`, and the only test is an empty `test('x', () => {})`. It passes today, before any work. Neither check covers totals in the list.\n9. **No test files are planned.** Neither slice lists anything under `test/` in Touch, so nothing would make the checks meaningful.\n\n**Smaller issues**\n10. **Slice order.** Both checks currently pass, so the plan can't show red then green. The checks need to be rewritten first.\n11. **Out of scope.** It lists editing and deleting notes but omits listing or reading notes. The Outcome says \"add notes\", while \"see ... order total\" covers totals only. It's unclear whether users can ever view notes.\n12. **Assumptions.** Plain text is the only one. Other assumptions are missing, such as note length limits, empty-note handling, behavior for unknown customer IDs, and what is returned on success.\n13. **Metadata.** \"Tier: full\" and \"Baseline: HEAD\" are vague. The baseline should be a commit hash, for example `ad7980f`."
+  },
+  {
+    "name": "plain review",
+    "found": [
+      {
+        "label": "check that cannot fail (C1)",
+        "hit": false
+      },
+      {
+        "label": "duplicates formatCurrency",
+        "hit": true
+      },
+      {
+        "label": "unmarked one-way door (schema change)",
+        "hit": true
+      },
+      {
+        "label": "new route missing auth",
+        "hit": true
+      },
+      {
+        "label": "query per customer (N+1)",
+        "hit": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.07830010000000001,
+      "turns": 11,
+      "input": 8,
+      "cacheRead": 130629,
+      "cacheWrite": 10493,
+      "output": 2312
+    },
+    "text": "Defects in `docs/plans/notes/PLAN.md`, checked against the repo (no files edited):\n\n**Blocking**\n\n1. **C1 can't verify S1.** `checks.json` defines C1 as `node -e \"process.exit(0)\"`, which always passes. The \"Done when\" condition (\"C1 and C2 pass\") therefore says nothing about whether the notes route works.\n2. **C2 can't verify S2.** C2 runs `node --test test/*.test.js`, and the only test is `test('x', () => {})`, which always passes. The plan has no slice that adds a test for the notes route or the totals list.\n3. **Duplicate helper (Decision 2, S2).** `src/lib/format.js` already exports `formatCurrency(cents)`, which does the same job. The plan adds `src/lib/money.js` with `formatMoney(cents)` and doesn't mention the existing file. It should reuse `formatCurrency` and drop `money.js` from S2's Touch list and from the Decisions.\n4. **N+1 query (Decision 3).** `db.getOrderTotalsByCustomer()` already exists and returns a Map of totals per customer. The plan instead loops over `db.getOrdersForCustomer(id)`, which costs one query per customer, and it justifies that with \"simplest code\". It should use the batch method.\n5. **Auth missing from S1.** The Outcome says \"Signed-in users\", and `src/app.js` guards `GET /customers` with `requireAuth`. S1 never says the new POST route must use `requireAuth` or return 401. The plan has no check for that.\n\n**Structural and consistency problems**\n\n6. **Wrong place for the list.** The list route `GET /customers` already lives in `src/app.js` and currently returns only `{status: 200}`. S2 creates a new `src/list.js` but doesn't say how `app.js` calls it. `src/app.js` isn't in S2's Touch list, so the list would never show the totals. S2 needs to touch `src/app.js`.\n7. **Notes storage is unspecified.** The `notes` column on `customers` (Decision 1) means one note per customer. The Outcome says users \"add notes\" (plural), so the schema is probably wrong. A `notes` table with a customer_id foreign key fits better. `db.js` also has no note read or write method, and S1 doesn't touch `src/db.js`, so the route has nowhere to store the note.\n8. **Migration numbering and runner.** `migrations/002_notes.sql` follows `001`, which is fine. But the repo has no migration runner, and the plan doesn't say how the migration gets applied.\n9. **S1's Touch list is incomplete.** It lists only `src/app.js` and the migration. It omits `src/db.js` (see 7) and any test file.\n\n**Plan hygiene**\n\n10. **Open questions hidden under \"None\".** Several things are undefined: the request and response shape for POST (note field name, status code such as 201 or 404 for an unknown customer, validation of empty notes), the currency and units for the totals, and whether \"Signed-in\" applies to reading the list. The \"Notes are plain text\" assumption doesn't cover these.\n11. **Out-of-scope gap.** \"Editing or deleting notes\" is excluded, but nothing says whether notes are shown anywhere. S1 stores them and S2 shows only totals, so the Outcome's \"add notes\" has no way to be read back.\n12. **Status line.** \"Tier: full\" and \"Baseline: HEAD\" are fine, but the Log and \"Now: drafting\" show the plan hasn't been through any review. It also has no per-slice acceptance criteria beyond the weak C1 and C2."
+  },
+  {
+    "name": "jig-reviewer",
+    "found": [
+      {
+        "label": "check that cannot fail (C1)",
+        "hit": true
+      },
+      {
+        "label": "duplicates formatCurrency",
+        "hit": true
+      },
+      {
+        "label": "unmarked one-way door (schema change)",
+        "hit": true
+      },
+      {
+        "label": "new route missing auth",
+        "hit": true
+      },
+      {
+        "label": "query per customer (N+1)",
+        "hit": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.10575949999999999,
+      "turns": 2,
+      "input": 4,
+      "cacheRead": 60067,
+      "cacheWrite": 10265,
+      "output": 1358
+    },
+    "text": "Here is the jig-reviewer's report. I haven't edited any files.\n\nVerdict: fix first\n\nFindings:\n1. [blocker] C1 can't fail. Evidence: `docs/plans/notes/checks.json` C1 runs `node -e \"process.exit(0)\"`, which always exits 0. Fix: replace it with a real test that POSTs `/customers/:id/notes` with and without auth and asserts the note is stored and a 401 is returned when unauthenticated.\n2. [blocker] C2 can't fail. Evidence: C2 runs `node --test test/*.test.js`, and `test/app.test.js` holds only an empty `test('x', () => {})`. It passes whether or not S2 exists. Fix: add a test that seeds customers and orders and asserts the list output contains the formatted totals. Make it fail before S2 is built.\n3. [major] The plan adds `src/lib/money.js` with `formatMoney`, but `src/lib/format.js` already exports `formatCurrency(cents)` with USD formatting. Evidence: `src/lib/format.js:1`. Fix: reuse `formatCurrency` and drop `money.js` from the Decisions and S2 Touch.\n4. [major] The plan fetches orders in a loop with `db.getOrdersForCustomer(id)`, which is an N+1 query. `db.getOrderTotalsByCustomer()` already returns a Map of totals. Evidence: `src/db.js:1`. The plan's reason for the loop is only \"simplest code\". Fix: use `getOrderTotalsByCustomer` and join it with `getCustomers` in memory.\n5. [major] Nothing in the plan wires the route or the list to the app, and the auth requirement is not covered. `src/app.js` has only `GET /customers`, which returns a bare 200 and doesn't use `db`. The request says \"signed-in users\". S1 doesn't mention `requireAuth`, and S2 creates `src/list.js` but doesn't touch `src/app.js`. As written, the list is never exposed on `GET /customers`. Fix: have S1 require `requireAuth` on the new route (401 otherwise). Add `src/app.js` to S2's Touch so `GET /customers` returns the customers with totals.\n6. [major] S1 changes the schema but only adds a migration, and the plan records no decision on it. The plan puts notes in a `notes` column on customers. That holds one note, so \"add notes\" would overwrite the previous one. The migration is also a one-way door that isn't marked. Fix: use a `customer_notes(id, customer_id, body, user, created_at)` table with an index on `customer_id`. Mark the migration as a one-way door and state whether it can be reversed. Also say that `db.js` needs an insert function, because S1's Touch list omits `src/db.js`.\n7. [minor] The plan doesn't say what happens for an unknown customer id, an empty note, or a very long note. It also doesn't say whether a repeated POST creates a duplicate. Fix: add a validation decision (404 for an unknown id, a 400 for an empty or oversized body) and state that POST is not idempotent.\n8. [minor] Notes are plain text, so the plan needs to say they are escaped on output. Fix: state that notes are escaped or returned only as JSON.\n\nNot checked: whether `jig verify` has any extra config beyond `checks.json`; the `db.js` implementation is a stub, so I could not assess its real queries or indexes."
+  },
+  {
+    "name": "jig-reviewer",
+    "found": [
+      {
+        "label": "check that cannot fail (C1)",
+        "hit": true
+      },
+      {
+        "label": "duplicates formatCurrency",
+        "hit": true
+      },
+      {
+        "label": "unmarked one-way door (schema change)",
+        "hit": true
+      },
+      {
+        "label": "new route missing auth",
+        "hit": true
+      },
+      {
+        "label": "query per customer (N+1)",
+        "hit": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.10577800000000001,
+      "turns": 2,
+      "input": 4,
+      "cacheRead": 60069,
+      "cacheWrite": 10372,
+      "output": 1450
+    },
+    "text": "Here is the jig-reviewer's report verbatim. I edited no files.\n\nVerdict: fix first\n\nFindings:\n1. [blocker] C1 can't fail. Evidence: `docs/plans/notes/checks.json:8` has `node -e \"process.exit(0)\"`, which always passes. S1 (the notes route) would show as verified with no route at all. Fix: replace it with a real test. It should POST /customers/:id/notes with auth and expect a 2xx. It should expect 401 without auth. It should check that the note is stored and readable.\n\n2. [major] C2 is `node --test test/*.test.js`, which runs the existing suite. Evidence: `checks.json:16`. Only `test/app.test.js` exists, and the plan adds no test for totals. C2 can pass with S2 missing or wrong. Fix: add a test, named in S2's Touch list, that asserts the list output has the correct total for a customer. Also cover a customer with no orders. Point C2 at that test.\n\n3. [major] The plan duplicates an existing helper. Evidence: `src/lib/format.js:1` already has `formatCurrency(cents)` (en-US USD). The plan adds `src/lib/money.js` with `formatMoney(cents)` (Decisions line 13, S2 Touch). Fix: drop money.js and use `formatCurrency`.\n\n4. [major] The plan has an N+1 query. Evidence: Decisions line 14 fetches orders in a loop with `getOrdersForCustomer`. `src/db.js:1` already has `getOrderTotalsByCustomer()` returning a Map, which is built for this. Fix: use `getCustomers()` plus `getOrderTotalsByCustomer()`. Remove the looped decision.\n\n5. [major] S2 doesn't wire up the list route. Evidence: `src/app.js:4` has GET /customers returning only `{status:200}`. S2 touches only `src/list.js (new)` and `money.js`, not `app.js`. Nothing would call the new list code, so the list would never show totals. Fix: add `src/app.js` to S2's Touch list, or state how list.js is hooked in. Also note that S1 and S2 both edit app.js.\n\n6. [major] Authorization and the notes model are underspecified. Evidence: the plan says \"signed-in users\" but doesn't say that POST /customers/:id/notes must call `requireAuth` (`src/app.js:2`) and return 401. It doesn't say what happens for a nonexistent customer id (should be 404). It doesn't say who the author is. Plain text is assumed but there's no length limit or output-escaping note. Fix: add these as S1 requirements and test them in C1.\n\n7. [major] The data model is likely wrong and is an unmarked one-way door. Evidence: Decisions line 12 adds a single `notes` column to customers (`migrations/001_customers.sql`). \"Add notes\" means multiple notes, and a single column would hold one value or force appends. The scope also leaves out editing, so each note needs an author and a timestamp, which a column can't hold. A schema change is hard to undo. Fix: use a `customer_notes(id, customer_id, user, body, created_at)` table with an index on `customer_id`. Mark the migration as a one-way door that the owner should confirm.\n\n8. [minor] The plan doesn't say how notes are shown. Evidence: the request and slices include no GET or display of notes. Fix: confirm that reading notes is in scope, or state it as out of scope.\n\nNot checked: `test/app.test.js` contents and `package.json` scripts. I did not run `jig verify`."
+  }
+]

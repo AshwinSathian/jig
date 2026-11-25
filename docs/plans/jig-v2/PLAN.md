@@ -1,7 +1,7 @@
 # jig v2: a planning and build harness for coding agents
 
 Status: building · Tier: full · Baseline: ddb3fdb · Updated: 2026-11-25
-Now: S5 in progress; S0 to S4 done.
+Now: S5 waiting on the owner: publish decisions and a full 3-run eval. S0 to S4 done.
 
 ## Outcome
 jig replaces the `plan-engineering` skill. It is a Claude Code plugin that plans engineering work at any size, carries the plan through to verified code, and turns repeated failures into deterministic guardrails. Design detail is in [docs/design.md](../../design.md), and the evidence is in [the adversarial review](../../research/2026-11-adversarial-review.md).
@@ -66,7 +66,7 @@ Checks: C1
 
 ### S5: Evals, packaging, publish prep [doing]
 Goal: the evidence report exists, and the plugin installs from its own marketplace.
-Touch: `evals/run.mjs (new)`, `evals/tasks (new)`, `evals/triggers (new)`, `evals/results (new)`, `README.md (new)`, `.claude-plugin/marketplace.json (new)`, `.github/workflows/ci.yml (new)`
+Touch: `evals/`, `README.md`, `CHANGELOG.md`, `.claude-plugin/marketplace.json`, `.github/workflows/ci.yml`, `cli/`, `docs/plans/jig-v2/checks.json`
 Checks: C4, C5
 - Risk: model judges inflate results. Detect: judged numbers disagree with command graders. Fallback: report command-graded numbers only, and label judged ones.
 
@@ -80,3 +80,5 @@ Checks: C4, C5
 - 2026-11-25: Hooks built ahead of S3 because the nudge needed them: session-start, pre-edit (protected tests ask, out-of-scope warns once), pre-bash (installs ask), stop (asks for verify evidence; never runs repo commands). 48 tests pass.
 - 2026-11-25: S2 closed without its produced-plans check (C6), which moves to S5 with the task evals so plans are produced once and graded once. S3 done: build skill on top of the hooks. S4 done: guard skill, `jig doctor` (D1 to D6, report only), team reference. A security review flagged the pre-edit hook failing open on a bad checks.json; it now asks instead. ESLint on jig's own code found an empty catch in the hooks, now fixed.
 - 2026-11-25 15:54: jig verify S1: C1 pass; C2 pass; C3 pass
+- 2026-11-25: S5 evals run as a smoke test (one run per cell, about $5 in total). Tasks: jig 8/8, none 6/8, superpowers 6/8, headless plan mode 4/8; jig's gains were the underspecified and schema-change tasks, at about +$0.02 and +3 turns per task. The soft nudge fired on only 1 of 8 task prompts, so the nudge was made firm; triggers then went 10/10 in both arms and task prompts 9/9. Reviewer: 5/5 seeded defects in both runs against 4 and 5 for a plain fresh review, inside the noise. Self-review against fresh review is not yet tested. A regex grader under-credited the plain review, and a manual check caught it. README, CHANGELOG, marketplace.json and CI added.
+- 2026-11-25 16:08: jig verify: C1 pass; C2 pass; C3 pass; C4 pass; C6 pass; C5 pass

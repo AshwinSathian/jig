@@ -5,7 +5,7 @@
     { "id": "C2", "slice": "S1", "kind": "acceptance", "cmd": "node cli/jig.mjs lint evals/fixtures/plans/good/brief/PLAN.md evals/fixtures/plans/good/full/PLAN.md evals/fixtures/plans/good/program/PLAN.md", "expect": { "exit": 0 }, "timeout_s": 30, "fast": true },
     { "id": "C3", "slice": "S1", "kind": "acceptance", "cmd": "node cli/jig.mjs lint docs/plans/jig-v2/PLAN.md", "expect": { "exit": 0 }, "timeout_s": 30, "fast": true },
     { "id": "C4", "slice": "S2", "kind": "acceptance", "cmd": "claude plugin validate .", "expect": { "exit": 0 }, "timeout_s": 60, "fast": true },
-    { "id": "C6", "slice": "S2", "kind": "acceptance", "cmd": "node cli/jig.mjs lint evals/fixtures/plans/produced", "expect": { "exit": 0 }, "timeout_s": 60, "fast": false },
+    { "id": "C6", "slice": "S2", "kind": "acceptance", "cmd": "node cli/jig.mjs lint --no-paths evals/fixtures/plans/produced", "expect": { "exit": 0 }, "timeout_s": 60, "fast": false },
     { "id": "C5", "slice": "S5", "kind": "acceptance", "cmd": "test -s evals/results/REPORT.md", "expect": { "exit": 0 }, "timeout_s": 10, "fast": false }
   ]
 }

@@ -1,0 +1,188 @@
+[
+  {
+    "task": "underspecified",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "source unchanged",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "asks what faster means",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.07973190000000001,
+      "turns": 8,
+      "input": 8,
+      "cacheRead": 122243,
+      "cacheWrite": 13797,
+      "output": 1218
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-underspecified-DwSAHT"
+  },
+  {
+    "task": "underspecified",
+    "arm": "jig",
+    "run": 1,
+    "pass": true,
+    "grades": [
+      {
+        "name": "source unchanged",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "asks what faster means",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0725261,
+      "turns": 6,
+      "input": 8,
+      "cacheRead": 121545,
+      "cacheWrite": 12788,
+      "output": 908
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-underspecified-jHrazt"
+  },
+  {
+    "task": "reuse-helper",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "total line correct",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reuses formatCurrency, no new formatter",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0837909,
+      "turns": 10,
+      "input": 10,
+      "cacheRead": 173080,
+      "cacheWrite": 13398,
+      "output": 1274
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-reuse-helper-Ipp5s9"
+  },
+  {
+    "task": "reuse-helper",
+    "arm": "jig",
+    "run": 1,
+    "pass": true,
+    "grades": [
+      {
+        "name": "total line correct",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reuses formatCurrency, no new formatter",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0756347,
+      "turns": 7,
+      "input": 8,
+      "cacheRead": 121898,
+      "cacheWrite": 13385,
+      "output": 976
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-reuse-helper-0Cw0Lf"
+  },
+  {
+    "task": "n-plus-one",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "correct and at most 2 queries",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0754683,
+      "turns": 6,
+      "input": 10,
+      "cacheRead": 172709,
+      "cacheWrite": 12566,
+      "output": 778
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-n-plus-one-N8yWVe"
+  },
+  {
+    "task": "n-plus-one",
+    "arm": "jig",
+    "run": 1,
+    "pass": true,
+    "grades": [
+      {
+        "name": "correct and at most 2 queries",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0810893,
+      "turns": 8,
+      "input": 10,
+      "cacheRead": 172844,
+      "cacheWrite": 12968,
+      "output": 1178
+    },
+    "skills": [
+      "jig:plan"
+    ],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-n-plus-one-R2rUCy"
+  }
+]

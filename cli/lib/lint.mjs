@@ -17,16 +17,16 @@ const VAGUE = ['soon', 'eventually', 'as needed', 'tbd', 'etc.', 'and so on', 'i
 const RISK_MATRIX = /\b(likelihood|impact)\b.*\b(score|low|med|high)\b/i;
 const DATE_ENTRY = /^-\s+\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?:\s+\S/;
 
-export function lintFile(planPath, { cwd = process.cwd() } = {}) {
+export function lintFile(planPath, { cwd = process.cwd(), paths = true } = {}) {
   const abs = isAbsolute(planPath) ? planPath : join(cwd, planPath);
   if (!existsSync(abs)) return { path: planPath, problems: [{ rule: 'J00', level: 'error', line: 0, msg: 'file not found' }] };
   const text = readFileSync(abs, 'utf8');
   const root = repoRoot(cwd) ?? cwd;
   const rel = relative(realpathSync(root), realpathSync(abs));
-  return { path: planPath, problems: lintText(text, { root, rel, checks: loadChecks(abs) }) };
+  return { path: planPath, problems: lintText(text, { root, rel, checks: loadChecks(abs), paths }) };
 }
 
-export function lintText(text, { root = null, rel = null, checks = null } = {}) {
+export function lintText(text, { root = null, rel = null, checks = null, paths = true } = {}) {
   const plan = parsePlan(text);
   const P = [];
   const err = (rule, line, msg) => P.push({ rule, level: 'error', line: line + 1, msg });
@@ -117,7 +117,7 @@ export function lintText(text, { root = null, rel = null, checks = null } = {}) 
       if (!s.fields.touch) err('J09', s.line, `slice ${s.id} has no "Touch:" line`);
       if (!s.fields.checks) err('J09', s.line, `slice ${s.id} has no "Checks:" line`);
     }
-    if (s.fields.touch && root) {
+    if (s.fields.touch && root && paths) {
       for (const t of touchPaths(s.fields.touch.value)) {
         if (!t.isNew && !/[*?]/.test(t.path) && !existsSync(join(root, t.path))) {
           err('J11', s.fields.touch.line, `${t.path} does not exist; mark it "(new)" if the slice creates it`);

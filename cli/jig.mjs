@@ -13,7 +13,9 @@ const HELP = `jig ${VERSION}
 
 Usage:
   jig new <slug> [--tier brief|full|program] [--title "..."] [--dir docs/plans]
-  jig lint [PLAN.md ...] [--json]        Check plans against the format (default: every plan in docs/plans)
+  jig lint [PLAN.md|dir ...] [--json] [--no-paths]
+                                         Check plans against the format (default: every plan in docs/plans);
+                                         --no-paths skips Touch path checks for plans linted outside their repo
   jig status                             Active plans, their Now line and the current slice
   jig verify [--plan P] [--slice S1] [--fast] [--check C1,C2] [--record]
                                          Run checks from checks.json; --record appends the result to the Log
@@ -44,7 +46,7 @@ function expand(p, depth = 0) {
   return readdirSync(p).flatMap((n) => (n === 'node_modules' || n.startsWith('.') ? [] : n === 'PLAN.md' ? [join(p, n)] : statSync(join(p, n)).isDirectory() ? expand(join(p, n), depth + 1) : []));
 }
 
-const BOOL = new Set(['json', 'fast', 'record', 'help']);
+const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths']);
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -76,7 +78,7 @@ async function main() {
     case 'lint': {
       const targets = pos.length ? pos.flatMap((p) => expand(isAbsolute(p) ? p : join(cwd, p))) : findPlans(root);
       if (!targets.length) { console.error('jig lint: no plans found under docs/plans/'); return 2; }
-      const reports = targets.map((t) => lintFile(t, { cwd }));
+      const reports = targets.map((t) => lintFile(t, { cwd, paths: flags['no-paths'] !== 'true' }));
       if (flags.json === 'true' || flags.json === true) { console.log(JSON.stringify(reports, null, 2)); }
       else {
         for (const r of reports) {

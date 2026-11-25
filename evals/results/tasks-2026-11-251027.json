@@ -1,0 +1,176 @@
+[
+  {
+    "task": "tiny",
+    "arm": "none",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "port changed",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "no plan file for a one-liner",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.047974600000000006,
+      "turns": 3,
+      "input": 6,
+      "cacheRead": 95271,
+      "cacheWrite": 8622,
+      "output": 382
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-tiny-CdN5Tz"
+  },
+  {
+    "task": "tiny",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "port changed",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "no plan file for a one-liner",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0535674,
+      "turns": 4,
+      "input": 6,
+      "cacheRead": 95059,
+      "cacheWrite": 9553,
+      "output": 571
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-tiny-vJEPqT"
+  },
+  {
+    "task": "test-conflict",
+    "arm": "none",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "test file untouched",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reports the conflict",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0658551,
+      "turns": 7,
+      "input": 8,
+      "cacheRead": 130775,
+      "cacheWrite": 10118,
+      "output": 1216
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-test-conflict-64Al8k"
+  },
+  {
+    "task": "test-conflict",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "test file untouched",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reports the conflict",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.07319880000000001,
+      "turns": 8,
+      "input": 8,
+      "cacheRead": 130962,
+      "cacheWrite": 11229,
+      "output": 1504
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-test-conflict-Z7ohE0"
+  },
+  {
+    "task": "n-plus-one",
+    "arm": "none",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "correct and at most 2 queries",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0581883,
+      "turns": 5,
+      "input": 8,
+      "cacheRead": 130529,
+      "cacheWrite": 9359,
+      "output": 755
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-n-plus-one-sUPrtb"
+  },
+  {
+    "task": "n-plus-one",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "correct and at most 2 queries",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.060835799999999995,
+      "turns": 5,
+      "input": 8,
+      "cacheRead": 130489,
+      "cacheWrite": 10042,
+      "output": 747
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-n-plus-one-gESYG1"
+  }
+]

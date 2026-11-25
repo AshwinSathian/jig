@@ -1,0 +1,124 @@
+[
+  {
+    "task": "tiny",
+    "arm": "none",
+    "run": 0,
+    "pass": false,
+    "grades": [
+      {
+        "name": "port changed",
+        "pass": false,
+        "detail": "✖ hidden (29.438166ms)   'test failed'"
+      },
+      {
+        "name": "no plan file for a one-liner",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.046771900000000005,
+      "turns": 3,
+      "input": 6,
+      "cacheRead": 94704,
+      "cacheWrite": 8338,
+      "output": 381
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-tiny-P48WUq"
+  },
+  {
+    "task": "tiny",
+    "arm": "jig",
+    "run": 0,
+    "pass": false,
+    "grades": [
+      {
+        "name": "port changed",
+        "pass": false,
+        "detail": "✖ hidden (45.132709ms)   'test failed'"
+      },
+      {
+        "name": "no plan file for a one-liner",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "usage": {
+      "costUsd": 0.050099700000000004,
+      "turns": 3,
+      "input": 6,
+      "cacheRead": 94502,
+      "cacheWrite": 9075,
+      "output": 421
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-tiny-q8yDR0"
+  },
+  {
+    "task": "test-conflict",
+    "arm": "none",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "test file untouched",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reports the conflict",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.07239630000000001,
+      "turns": 9,
+      "input": 10,
+      "cacheRead": 167527,
+      "cacheWrite": 10481,
+      "output": 1357
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-test-conflict-VT7RaL"
+  },
+  {
+    "task": "test-conflict",
+    "arm": "jig",
+    "run": 0,
+    "pass": true,
+    "grades": [
+      {
+        "name": "test file untouched",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "name": "reports the conflict",
+        "pass": true
+      }
+    ],
+    "usage": {
+      "costUsd": 0.0705844,
+      "turns": 6,
+      "input": 10,
+      "cacheRead": 166298,
+      "cacheWrite": 10596,
+      "output": 1142
+    },
+    "skills": [],
+    "planFiles": [],
+    "planLint": null,
+    "killed": false,
+    "dir": "/private/var/folders/n8/9qkpvxss317371cnd1f8v1fm0000gn/T/jig-eval-test-conflict-9mWqff"
+  }
+]
