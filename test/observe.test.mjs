@@ -1,7 +1,7 @@
 // Observe mode: a gate logs what it would have asked or blocked, and prints nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { hook, planRepo, base } from './helpers.mjs';
 import { tempRepo } from './verify.test.mjs';
@@ -123,4 +123,27 @@ test('rules gate: a workflow path with Windows separators still asks', () => {
   const { dir } = tempRepo();
   const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: `${dir}/.github\\workflows\\ci.yml`, content: 'x' } }));
   assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+});
+
+test('rules gate: a protected workflow still asks when only protects is observed', () => {
+  const { dir, g } = planRepo();
+  const p = join(dir, 'docs/plans/demo/checks.json');
+  const c = JSON.parse(readFileSync(p, 'utf8'));
+  c.checks[0].protects.push('.github/workflows/');
+  writeFileSync(p, JSON.stringify(c)); g('add', '-A'); g('commit', '-qm', 'protect workflows');
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/new.yml'), content: 'x' } }), { JIG_GATES: 'observe:protects' });
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask', 'observing protects must not silence the workflow ask');
+  assert.deepEqual(log(dir).map((e) => e.gate), ['protects']);
+});
+
+test('pre-edit: a path reached through a symlink of the repo root is still guarded', () => {
+  const { dir } = planRepo();
+  const link = `${dir}-link`;
+  symlinkSync(dir, link);
+  try {
+    const prot = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(link, 'test/a.accept.test.js'), old_string: '// spec', new_string: '// x' } }));
+    assert.equal(prot?.hookSpecificOutput?.permissionDecision, 'ask', 'protected test via symlink');
+    const wf = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(link, '.github/workflows/ci.yml'), content: 'x' } }));
+    assert.equal(wf?.hookSpecificOutput?.permissionDecision, 'ask', 'new workflow via symlink');
+  } finally { unlinkSync(link); }
 });

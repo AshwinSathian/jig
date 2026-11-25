@@ -91,7 +91,7 @@ What went wrong first, and what that means for the numbers:
 - Any result on a model other than Claude Opus 5.5 (task and trigger evals) or Sonnet 5.5 (reviewer eval).
 - More than 3 runs per cell, or any confidence interval.
 - Repositories larger than a few files, or tasks longer than one session.
-- Execution of a full multi-slice plan across sessions with the build skill. One live session has driven the hooks: `node evals/hooks-live.mjs` (2026-11-25, $0.08, 8 of 8). Real Edit, Write and Bash payloads reached the freeze, protects, rules and tree gates in the shapes the hooks parse, and adding a check raised nothing.
+- Execution of a full multi-slice plan across sessions with the build skill. One live session has driven the hooks: `node evals/hooks-live.mjs` (2026-11-25, 11 of 11, $0.09). Each step is tied to the tool and file it names, and each payload field the hooks read decides an outcome. An Edit's old and new strings give a freeze entry. A Write's content gives a freeze entry, and its path a protects entry. A Bash command shaped like an install gives an install entry. Adding a check raises nothing. The first version of the script (8 of 8) couldn't tell a wrong Write `content` or Bash `command` shape from a right one. The diff review caught that, and the script was tightened.
 - Fresh-context review beating self-review on anything other than naming one-way doors. With n=3 and one held-out case, every arm found everything.
 - Whether the reviewer now returns rethink in round 3 as reworded.
 - Human-judged plan quality. No person has rated the plans.

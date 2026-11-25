@@ -3,8 +3,8 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
-import { join, relative, isAbsolute } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, appendFileSync, realpathSync } from 'node:fs';
+import { join, relative, isAbsolute, dirname, basename } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
@@ -117,10 +117,22 @@ function switchesIn(text) {
   return s.match(SWITCHES)?.[0] ?? null;
 }
 
+// The path as git sees it: resolve the nearest existing ancestor, so a file
+// reached through a symlink of the repo (macOS /tmp and /private/tmp) maps to
+// the same repo-relative path, and a new file under it does too.
+function canonical(abs) {
+  let dir = abs; const rest = [];
+  while (!existsSync(dir) && dirname(dir) !== dir) { rest.unshift(basename(dir)); dir = dirname(dir); }
+  try { return join(realpathSync(dir), ...rest); } catch { return abs; }
+}
+
 export function preEdit(input) {
-  const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
+  const key = input.tool_input?.file_path !== undefined ? 'file_path' : 'notebook_path';
+  const raw = input.tool_input?.[key];
   const root = rootOf(input);
-  const abs = file ? (isAbsolute(file) ? file : join(root, file)) : null;
+  const abs = raw ? canonical(isAbsolute(raw) ? raw : join(root, raw)) : null;
+  // Every gate below sees the canonical path.
+  if (abs) input = { ...input, tool_input: { ...input.tool_input, [key]: abs } };
   const rel = abs ? relative(root, abs) : null;
   // Turning jig's gates off from a rule file always asks, and has no gate
   // name, so observe mode can't silence it. Judged on the whole file after
@@ -137,14 +149,18 @@ export function preEdit(input) {
     }
   }
   const out = guardEdit(input);
-  if (out?.gate || !rel || !isRuleFile(rel)) return out;
+  // A workflow edit keeps its own ask even when another gate on the same edit
+  // (protects, freeze) is only being observed: log that one, ask for rules.
+  if (rel && isWorkflow(rel) && out?.gate && observed(out.gate)) {
+    observe(input, 'pre-edit', out.gate, out);
+  } else if (out?.gate || !rel || !isRuleFile(rel)) return out;
   // CI workflows run with the repo's secrets and are rarely part of normal
   // work, so an edit asks (JIG_GATES=observe:rules turns it into a log entry).
   // CLAUDE.md, REVIEW.md and .claude/ are only logged: CLAUDE.md edits are
   // usually legitimate, and Claude Code already prompts for .claude/ writes.
   if (isWorkflow(rel)) {
     const a = ask('rules', `jig: ${rel} is a CI workflow. It runs in CI with the repo's secrets, so a person should read this change.`);
-    const ctx = out?.hookSpecificOutput?.additionalContext;
+    const ctx = out?.gate ? null : out?.hookSpecificOutput?.additionalContext;
     if (ctx) a.hookSpecificOutput.additionalContext = ctx;
     return a;
   }

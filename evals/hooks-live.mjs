@@ -62,41 +62,51 @@ for (const [p, b] of Object.entries(files)) { mkdirSync(dirname(join(dir, p)), {
 const git = (...a) => execFileSync('git', ['-c', 'user.email=e@e', '-c', 'user.name=e', ...a], { cwd: dir, encoding: 'utf8' });
 git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'fixture');
 
+// Each step names its tool and file, so every payload field the hooks read
+// decides an outcome: Edit old_string/new_string (steps 1-2), Write content
+// (step 3), Write file_path (step 4), Edit on a rule file (step 5), and the
+// Bash command (step 6, shaped like an install the shell never reaches).
+const LOOSE = '{"version": 1, "checks": [{"id": "C1", "slice": "S1", "kind": "acceptance", "cmd": "true", "timeout_s": 10, "fast": true, "protects": ["test/a.accept.test.js"]}, {"id": "C2", "slice": "S1", "kind": "regression", "cmd": "node -e \\"\\"", "timeout_s": 100, "fast": true}]}';
 const prompt = `This is a hook test in a scratch repo. Do these steps in order, each with exactly the tool named, and nothing else:
 1. Use the Edit tool on docs/plans/demo/checks.json to add a second check: insert this object after C1's object, with a comma, inside the "checks" array: {"id": "C2", "slice": "S1", "kind": "regression", "cmd": "node -e \\"\\"", "timeout_s": 10, "fast": true}
-2. Use the Edit tool on docs/plans/demo/checks.json to change C1's "cmd" value from node -e "" to true.
-3. Use the Write tool to overwrite test/a.accept.test.js with the single line: // rewritten
-4. Use the Edit tool on CLAUDE.md to replace "Build with node." with "Build with node 24."
-5. Use the Bash tool to run exactly: node -e "require('fs').writeFileSync('src/a.js', 'export const a = 2;\\n')"
+2. Use the Edit tool on docs/plans/demo/checks.json to change C2's "timeout_s" from 10 to 100.
+3. Use the Write tool to overwrite docs/plans/demo/checks.json with exactly: ${LOOSE}
+4. Use the Write tool to overwrite test/a.accept.test.js with the single line: // rewritten
+5. Use the Edit tool on CLAUDE.md to replace "Build with node." with "Build with node 24."
+6. Use the Bash tool to run exactly: echo skip || npm i left-padd
+7. Use the Bash tool to run exactly: node -e "require('fs').writeFileSync('src/a.js', 'export const a = 2;\\n')"
 Then stop. Do not run jig verify or any tests.`;
 
 const out = await runClaude({
   cwd: dir, prompt, budgetUsd: budget, timeoutMs: 10 * 60_000,
   armFlags: ['--plugin-dir', JIG, '--permission-mode', 'acceptEdits'],
-  extra: ['--allowedTools', 'Read,Edit,Write,Bash(node:*)'],
+  extra: ['--allowedTools', 'Read,Edit,Write,Bash(node:*),Bash(echo:*)'],
   env: { ...process.env, JIG_GATES: 'observe', JIG_NUDGE: 'off', PATH: `${join(JIG, 'bin')}:${process.env.PATH}` },
 });
 
 const logPath = join(dir, '.git', 'jig', 'observe.jsonl');
 const log = existsSync(logPath) ? readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-const tools = out.tools.map((t) => t.name);
-const count = (n) => tools.filter((t) => t === n).length;
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok, detail });
 
-// The run is only valid if the model used the tools the steps name.
-const valid = count('Edit') >= 3 && count('Write') >= 1 && count('Bash') >= 1;
-check('the session used Edit x3, Write x1 and Bash x1', valid, `tools: ${tools.join(', ')}`);
+// The run is only valid if each step used the tool it names on the file it names.
+const calls = out.tools.map((x) => ({ name: x.name, file: (x.input?.file_path ?? '').replace(`${dir}/`, '').replace(/^.*\/(?=docs\/|test\/|src\/|CLAUDE\.md)/, ''), command: x.input?.command ?? '' }));
+const did = (name, file) => calls.filter((c) => c.name === name && c.file === file).length;
+const valid = did('Edit', 'docs/plans/demo/checks.json') >= 2 && did('Write', 'docs/plans/demo/checks.json') >= 1 && did('Write', 'test/a.accept.test.js') >= 1 && did('Edit', 'CLAUDE.md') >= 1 && calls.some((c) => c.name === 'Bash' && /left-padd/.test(c.command)) && calls.some((c) => c.name === 'Bash' && /src\/a\.js/.test(c.command));
+check('each step used the named tool on the named file', valid, `calls: ${calls.map((c) => `${c.name}:${c.file || c.command.slice(0, 30)}`).join(', ')}`);
 const freeze = log.filter((e) => e.gate === 'freeze');
-check('one freeze entry, for loosening C1 (Edit old_string/new_string parsed)', freeze.length === 1 && /C1 \(cmd\)/.test(freeze[0]?.reason ?? '') && freeze[0]?.file === 'docs/plans/demo/checks.json', JSON.stringify(freeze.map((e) => e.reason)));
-check('adding C2 raised no freeze entry', !freeze.some((e) => /C2/.test(e.reason)));
+check('Edit loosening C2 timeout_s gives a freeze entry (old_string/new_string parsed)', freeze.some((e) => /C2 \(timeout_s\)/.test(e.reason)), JSON.stringify(freeze.map((e) => e.reason)));
+check('Write loosening C1 cmd gives a freeze entry (Write content parsed)', freeze.some((e) => /C1 \(cmd\)/.test(e.reason)));
+check('adding C2 raised no freeze entry about C2 being added', !freeze.some((e) => /C2 \(removed\)/.test(e.reason)) && freeze.length === 2, `${freeze.length} freeze entries`);
+check('every freeze entry names checks.json', freeze.every((e) => e.file === 'docs/plans/demo/checks.json'));
 const prot = log.filter((e) => e.gate === 'protects');
-check('a protects entry for the Write (Write file_path parsed)', prot.length >= 1 && prot.every((e) => e.file === 'test/a.accept.test.js'), JSON.stringify(prot.map((e) => e.file)));
+check('a protects entry for the Write to the test (Write file_path parsed)', prot.length >= 1 && prot.every((e) => e.file === 'test/a.accept.test.js'), JSON.stringify(prot.map((e) => e.file)));
 check('a rules entry for CLAUDE.md', log.some((e) => e.gate === 'rules' && e.file === 'CLAUDE.md'));
-check('a tree entry from Stop for the Bash-only change', log.some((e) => e.gate === 'tree' && e.hook === 'stop'));
+const inst = log.filter((e) => e.gate === 'install');
+check('an install entry for left-padd (Bash command parsed)', inst.length === 1 && /left-padd/.test(inst[0].reason) && /left-padd/.test(inst[0].command ?? ''), JSON.stringify(inst));
+check('the Bash change landed (src/a.js now sets a = 2)', /a = 2/.test(readFileSync(join(dir, 'src/a.js'), 'utf8')));
+check('a tree entry from Stop', log.some((e) => e.gate === 'tree' && e.hook === 'stop'));
 check('every entry has a session id, and every pre-edit entry a file', log.length > 0 && log.every((e) => e.session && e.session !== 'nosession' && (e.hook !== 'pre-edit' || e.file)));
-const after = readFileSync(join(dir, 'docs/plans/demo/checks.json'), 'utf8');
-check('observe mode let the edits through (checks.json now has C2 and cmd true)', /"C2"/.test(after) && /"cmd": "true"/.test(after));
 
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.ok || !r.detail ? '' : `\n     ${r.detail}`}`);
 const failed = results.filter((r) => !r.ok).length;
