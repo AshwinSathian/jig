@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S6 dogfood and release 2.1.0 in progress. S1 to S5 done.
+Now: 2.1.0 is in PR #4 with CI green, waiting for the owner to merge and release. Next: S7, branched from main after the merge, then `npm view jig-plan version` and `npm audit signatures`. S1 to S6 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -70,7 +70,7 @@ Goal: with `JIG_GATES=observe`, every ask or block is appended to `.git/jig/obse
 Touch: `cli/lib/hooks.mjs`, `test/observe.test.mjs (new)`, `evals/dogfood-hooks.mjs (new)`
 Checks: C10, R5
 
-### S6: Dogfood and release 2.1.0 [doing]
+### S6: Dogfood and release 2.1.0 [done]
 Goal: doctor, lint and the hooks in observe mode run on the chattermeter clone; a Log line starting "observe-mode dogfood 2.1.0" gives the observe event count, false positives and hook p50; versions are bumped, the CHANGELOG and README are updated where behaviour changed, and the PR is open with CI green.
 Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`, `evals/dogfood-hooks.mjs (new)`
 Checks: C11, C12, C24, R6
@@ -139,3 +139,4 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25 20:18: jig verify S6: C11 pass; C12 pass; R6 pass; C24 pass
 - 2026-11-25: Third security review of the switches ask suggested more escape forms (YAML and others). No change, because only `.claude/settings*.json` can set a hook's environment, and that is JSON, which the hook decodes with `JSON.parse` before matching. Escapes in workflow YAML or CLAUDE.md can't reach the hook's env, and Bash can bypass every edit hook anyway.
 - 2026-11-25: All 18 checks for 2.1.0 pass together (C1 to C12, C24, R2 to R6). The release PR is next. S6 closes when CI is green.
+- 2026-11-25: S6 done. PR #4 (verification-loops-2.1.0) is open, and CI passed Test 20, 22 and 24 and Secret scan. The owner merges and creates the v2.1.0 release, and publish.yml publishes it. 2.2.0 (S7 to S11) starts from main after the merge, so the two PRs don't stack.
