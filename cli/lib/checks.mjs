@@ -66,7 +66,7 @@ const canon = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.f
 const short = (v) => createHash('sha256').update(JSON.stringify(canon(v) ?? null)).digest('hex').slice(0, 12);
 
 export function snapshot(checks) {
-  const out = {};
+  const out = Object.create(null);
   for (const c of checks ?? []) {
     if (!c || typeof c.id !== 'string') continue;
     out[c.id] = { f: Object.fromEntries(FROZEN.map((k) => [k, short(c[k])])), protects: [...(c.protects ?? [])].sort() };
@@ -78,10 +78,10 @@ export function snapshot(checks) {
 export function loosened(before, after) {
   const out = [];
   for (const [id, b] of Object.entries(before ?? {})) {
-    const a = after[id];
+    const a = Object.hasOwn(after, id) ? after[id] : null;
     if (!a) { out.push({ id, why: 'removed' }); continue; }
     const why = FROZEN.filter((k) => b.f?.[k] !== a.f?.[k]);
-    for (const p of b.protects ?? []) if (!a.protects.includes(p)) why.push(`protects -${p}`);
+    for (const p of b.protects ?? []) if (!(a.protects ?? []).includes(p)) why.push(`protects -${p}`);
     if (why.length) out.push({ id, why: why.join(', ') });
   }
   return out;

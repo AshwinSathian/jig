@@ -1,7 +1,7 @@
 // Gap 1: a slice must not loosen its own checks without a person seeing it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { hook, planRepo, base, CLI } from './helpers.mjs';
@@ -110,4 +110,30 @@ test('verify says so when the committed checks.json does not parse', () => {
   writeFileSync(join(dir, CHECKS), json([C1]));
   const r = spawnSync('node', [CLI, 'verify', '--plan', planPath, '--slice', 'S1'], { cwd: dir, encoding: 'utf8' });
   assert.match(r.stdout, /HEAD docs\/plans\/demo\/checks\.json is not valid JSON/);
+});
+
+test('freeze: a check id that names an Object property is still compared', () => {
+  const { dir, g } = repo();
+  writeFileSync(join(dir, CHECKS), json([C1, { ...C1, id: 'constructor', protects: ['test/x.test.js'] }])); g('add', '-A'); g('commit', '-qm', 'odd id');
+  assert.ok(asks(write(dir, [C1])), 'removing check "constructor"');
+});
+
+test('freeze: an Edit to checks.json that cannot be simulated asks', () => {
+  const { dir } = repo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(dir, CHECKS), old_string: '“cmd”', new_string: '"x"' } }));
+  assert.ok(asks(out));
+});
+
+test('freeze: a path spelled in another case is the same file', { skip: !existsSync(join(import.meta.dirname, '..', 'PACKAGE.JSON')) && 'case-sensitive filesystem' }, () => {
+  const { dir } = repo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'Docs/Plans/demo/CHECKS.json'), content: json([]) } }));
+  assert.ok(asks(out));
+});
+
+test('freeze: an edit that takes the plan out of approved or building asks', () => {
+  const { dir, planPath } = repo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: planPath, old_string: 'Status: building', new_string: 'Status: draft' } }));
+  assert.ok(asks(out));
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /draft/);
+  assert.equal(hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: planPath, old_string: 'Status: building', new_string: 'Status: approved' } })), null);
 });

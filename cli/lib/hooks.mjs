@@ -3,12 +3,13 @@
 // - never return permissionDecision "allow": that would skip the user's prompts
 // - never run repo-defined commands: checks.json is untrusted input
 // - append short context, and don't repeat it
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
 import { lastEvidence, workTree } from './verify.mjs';
+import { parsePlan } from './plan.mjs';
 
 const off = (name) => {
   const v = (process.env.JIG_HOOKS_OFF ?? '').split(',').map((s) => s.trim());
@@ -74,7 +75,7 @@ export function sessionStart(input) {
 // Fails closed: a result that doesn't parse or validate asks.
 function frozenChange(checks, input) {
   const after = applyEdit(readFileSync(checks.path, 'utf8'), input.tool_name, input.tool_input ?? {});
-  if (after === null) return null;
+  if (after === null) return 'is an edit jig could not apply to the current file, so it cannot tell what changes';
   let data;
   try { data = JSON.parse(after); } catch (e) { return `would leave invalid JSON (${e.message})`; }
   const problems = validateChecks(data);
@@ -83,11 +84,21 @@ function frozenChange(checks, input) {
   return loose.length ? `loosens ${loose.map((l) => `${l.id} (${l.why})`).join('; ')}` : null;
 }
 
+// The same file, even when the path is spelled in another case (macOS and
+// Windows filesystems ignore case) or reached through a symlink.
+function sameFile(a, b) {
+  try {
+    const x = statSync(a); const y = statSync(b);
+    return x.ino === y.ino && x.dev === y.dev;
+  } catch { return a === b; } // a file that doesn't exist yet: compare paths
+}
+
 export function preEdit(input) {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (!file) return null;
   const root = rootOf(input);
-  const rel = relative(root, isAbsolute(file) ? file : join(root, file));
+  const abs = isAbsolute(file) ? file : join(root, file);
+  const rel = relative(root, abs);
   if (rel.startsWith('..')) return null;
   const st = sessionState(root, input);
   st.data.editedAt = Date.now();
@@ -110,7 +121,20 @@ export function preEdit(input) {
         },
       };
     }
-    if (checks.exists && rel === relative(root, checks.path)) {
+    if (sameFile(abs, path)) {
+      const after = applyEdit(readFileSync(path, 'utf8'), input.tool_name, input.tool_input ?? {});
+      const to = after === null ? null : parsePlan(after).header?.status?.toLowerCase();
+      if (after !== null && !['approved', 'building'].includes(to)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'ask',
+            permissionDecisionReason: `jig: this edit sets ${rel} to Status: ${to ?? '(none)'}, which takes it out of the checks freeze and the slice hooks. Changing a plan's status is the owner's call.`,
+          },
+        };
+      }
+    }
+    if (checks.exists && sameFile(abs, checks.path)) {
       const why = frozenChange(checks, input);
       if (why) {
         return {
