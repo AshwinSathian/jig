@@ -1,7 +1,7 @@
 // Observe mode: a gate logs what it would have asked or blocked, and prints nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { hook, planRepo, base } from './helpers.mjs';
 import { tempRepo } from './verify.test.mjs';
@@ -61,6 +61,7 @@ test('rules gate: rule-file edits are logged, not asked, even with no plan and n
 
 test('rules gate: nested rule files count, and a scope warning survives the log entry', () => {
   const { dir } = planRepo();
+  writeFileSync(join(dir, 'CLAUDE.md'), 'a\n');
   const warn = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md'), old_string: 'a', new_string: 'b' } }));
   assert.match(warn.hookSpecificOutput.additionalContext, /outside S1's Touch list/);
   for (const f of ['packages/web/CLAUDE.md', 'apps/api/.claude/settings.json', 'sub/REVIEW.md']) {
@@ -78,4 +79,16 @@ test('switches gate: an edit that would turn jig gates off asks, even in observe
   }
   const edit = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md'), old_string: 'x', new_string: 'export JIG_HOOKS_OFF=stop' } }));
   assert.equal(edit?.hookSpecificOutput?.permissionDecision, 'ask');
+});
+
+test('switches gate: judged on the file after the edit, decoded, and in any case', () => {
+  const { dir, g } = tempRepo();
+  mkdirSync(join(dir, '.claude'));
+  writeFileSync(join(dir, '.claude/settings.json'), '{"env":{"JIG_X":"1"}}\n');
+  g('add', '-A'); g('commit', '-qm', 'settings');
+  const asks = (input) => hook('pre-edit', base(dir, input))?.hookSpecificOutput?.permissionDecision === 'ask';
+  assert.ok(asks({ tool_name: 'Edit', tool_input: { file_path: join(dir, '.claude/settings.json'), old_string: 'X"', new_string: 'GATES"' } }), 'joined with existing text');
+  assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.claude/settings.json'), content: '{"env":{"JIG\\u005fHOOKS_OFF":"all"}}' } }), 'JSON escape');
+  assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.CLAUDE/settings.json'), content: '{"env":{"JIG_GATES":"observe"}}' } }), 'other case');
+  assert.ok(!asks({ tool_name: 'Edit', tool_input: { file_path: join(dir, '.claude/settings.json'), old_string: '"1"', new_string: '"2"' } }), 'unrelated edit');
 });
