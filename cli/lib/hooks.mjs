@@ -8,7 +8,7 @@ import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
-import { lastEvidence } from './verify.mjs';
+import { lastEvidence, workTree } from './verify.mjs';
 
 const off = (name) => {
   const v = (process.env.JIG_HOOKS_OFF ?? '').split(',').map((s) => s.trim());
@@ -47,10 +47,21 @@ export function pathMatches(rel, pattern) {
   return re.test(rel);
 }
 
+// The tree before this session changed anything, kept once: SessionStart also
+// fires on resume and compact, and overwriting it would forget earlier changes.
+// The PreToolUse hooks call this too (before their tool runs), for a session
+// that started before any plan was active.
+function keepStartTree(root, st) {
+  if (st.data.startTree) return;
+  const tree = workTree(root);
+  if (tree) { st.data.startTree = tree; st.save(); }
+}
+
 export const NUDGE = 'jig: for any request to change code in this repo, invoke the jig:plan skill first, before reading or editing files. For a one-line fix it is a four-line plan in chat and adds little; for anything ambiguous or risky it catches what a direct start misses. Skip it only for questions, explanations, reviews, and debugging an error whose cause is unknown.';
 
 export function sessionStart(input) {
   const root = rootOf(input);
+  if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
   const status = statusSummary(root, { max: 2 });
@@ -84,6 +95,7 @@ export function preEdit(input) {
 
   const plans = activePlans(root);
   if (!plans.length) return null;
+  keepStartTree(root, st);
   for (const { path } of plans) {
     const checks = loadChecks(path);
     // Fail closed on the one guard that protects files: if checks.json can't
@@ -171,6 +183,8 @@ export function installedPackages(command) {
 
 export function preBash(input) {
   const cmd = input.tool_input?.command ?? '';
+  const root = rootOf(input);
+  if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
   const pkgs = installedPackages(cmd);
   if (!pkgs.length) return null;
   const names = pkgs.map((p) => `${p.name} (${p.eco})`).join(', ');
@@ -188,7 +202,6 @@ export function stop(input) {
   if ((input.background_tasks ?? []).length) return null;
   const root = rootOf(input);
   const st = sessionState(root, input);
-  if (!st.data.editedAt) return null;
   const plans = activePlans(root).filter(({ plan }) => doingSlice(plan));
   if (!plans.length) return null;
   // Only when a checks.json exists; brief plans state checks as commands.
@@ -196,10 +209,19 @@ export function stop(input) {
   if (!withChecks.length) return null;
   const sliceChecks = withChecks.flatMap((x) => x.checks.data.checks.filter((c) => c.slice === x.slice.id));
   const cmd = sliceChecks.some((c) => c.fast === true) ? 'jig verify --fast --record' : 'jig verify --record';
+  // In git, compare working trees, which also sees changes made through Bash.
+  // Outside git, or if git fails, fall back to the Edit hook's timestamp.
+  const tree = workTree(root);
+  // An Edit-hook call counts as a change too, as it did before tree ids.
+  const changed = Boolean(st.data.editedAt) || Boolean(tree && st.data.startTree && tree !== st.data.startTree);
+  if (!changed) return null;
   const ev = lastEvidence(root);
+  const run = `Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.`;
   // Evidence that ran no checks proves nothing.
-  if (!ev || ev.t < st.data.editedAt || !(ev.results ?? []).length) {
-    return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.` };
+  if (!ev || !(ev.results ?? []).length) return { decision: 'block', reason: `jig: files changed and no \`jig verify\` has run a check. ${run}` };
+  if (tree && !ev.tree) return { decision: 'block', reason: `jig: the last \`jig verify\` has no tree id (it was recorded before jig 2.1), so it can't show which files it checked. ${run}` };
+  if (tree ? ev.tree !== tree : ev.t < st.data.editedAt) {
+    return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. ${run}` };
   }
   const failed = (ev.results ?? []).filter((r) => !r.pass).map((r) => r.id);
   if (failed.length && !st.data.reportedFailure) {

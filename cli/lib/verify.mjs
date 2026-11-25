@@ -3,7 +3,8 @@ import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs
 import { join, relative } from 'node:path';
 import { loadChecks, snapshot, loosened } from './checks.mjs';
 import { parsePlan, section } from './plan.mjs';
-import { stateDir, showHead } from './git.mjs';
+import { stateDir, showHead, treeId, headSha } from './git.mjs';
+import { plansDir } from './status.mjs';
 import { today } from './scaffold.mjs';
 
 function lastLine(s) {
@@ -40,10 +41,20 @@ export function verifyPlan(root, planPath, opts = {}) {
   const checks = snapshot(loaded.data.checks);
   const changes = changedChecks(root, plan, relative(root, loaded.path), checks);
   const logged = Boolean(opts.record && results.length);
-  const record = { t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, checks, results: results.map(({ id, pass, exit, ms }) => ({ id, pass, exit, ms })) };
+  // After the checks: output they write must not make this record stale.
+  const tree = workTree(root);
+  const record = { t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, head: headSha(root, { short: false }), tree, checks, results: results.map(({ id, pass, exit, ms }) => ({ id, pass, exit, ms })) };
   appendFileSync(join(stateDir(root), 'evidence.jsonl'), JSON.stringify(record) + '\n');
   if (logged) appendLog(planPath, logLine(results, opts.slice, changes));
-  return { results, ...changes };
+  return { results, ...changes, tree };
+}
+
+// The working tree jig compares evidence against. Plan files are left out,
+// because `jig verify --record` writes the Log after the tree is taken; the
+// checks.json beside them stays in, so a Bash edit to it makes evidence stale.
+export function workTree(root) {
+  const dirs = [...new Set([plansDir(root), 'docs/plans', 'docs/plan'])];
+  return treeId(root, (rel) => rel !== 'docs/PLAN.md' && !dirs.some((d) => rel.startsWith(`${d}/`) && rel.endsWith('/PLAN.md') && rel.split('/').length === d.split('/').length + 2));
 }
 
 // Checks.json edits made outside the edit hook (Bash, an editor) show up here:
