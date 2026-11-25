@@ -1,7 +1,7 @@
 // Grading for the reviewer eval. Pure functions, so they are unit-tested
 // without spending anything (test/reviewer-grade.test.mjs).
 
-const ITEM = /^\s*(#+\s*)?(\*\*)?\s*(\d+[.)]|[-*])(\*\*)?\s+\S/;
+const ITEM = /^(#+\s*)?(\*\*)?(\d+[.)]|[-*])(\*\*)?\s+\S/;
 const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary)\b/i;
 
 // List items inside the "Findings" block (any common list form). When a
@@ -10,6 +10,8 @@ const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary)\b/i
 export function findings(text) {
   const lines = (text ?? '').split('\n');
   const start = lines.findIndex((l) => /^\s*(#+\s*)?(\*\*)?findings\b/i.test(l));
+  // A ready review with no Findings section lists what holds, not defects.
+  if (start === -1 && verdict(text) === 'ready') return [];
   const out = [];
   for (const l of lines.slice(start + 1)) {
     if (SECTION_END.test(l)) break;

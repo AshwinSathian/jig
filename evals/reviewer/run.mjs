@@ -73,16 +73,18 @@ async function review(arm, c) {
     console.error(`skipped ${arm} ${c.id}: spent $${spent.toFixed(2)} of the $${BUDGET} ceiling`);
     return { arm, id: c.id, set: c.set, grade: { valid: false, found: [] }, skipped: true, costUsd: 0 };
   }
-  const startSpent = spent;
   const a = ARMS[arm];
   const dir = scaffold(a.setup(c));
   const ask = (prev) => runClaude({ cwd: dir, prompt: a.prompt(c, prev), armFlags: a.flags, budgetUsd: 1.5, timeoutMs: 15 * 60_000, extra: a.tools, env: ENV });
   // What each round did, so a run can be audited: did fresh really start the
   // reviewer subagent, did self stay inside its own context?
   const log = [];
+  let cost = 0;
   const record = (out) => {
     log.push({ tools: out.tools.map((t) => t.name), skills: out.skills, killed: out.killed, error: out.result?.is_error ?? !out.result, stderr: out.stderr.slice(-500) });
-    spent += usageOf(out.result)?.costUsd ?? 0;
+    const c = usageOf(out.result)?.costUsd ?? 0;
+    cost += c;
+    spent += c;
     return out.result?.result ?? '';
   };
   let out = await ask(null);
@@ -107,7 +109,6 @@ async function review(arm, c) {
       rounds.push(verdict(text));
     }
   }
-  const cost = spent - startSpent;
   const used = [...new Set(log.flatMap((l) => l.tools))].join('/') || 'none';
   console.error(`${arm} ${c.id} (${c.set})${g.valid ? '' : ' INVALID'}: recall ${g.recall ?? '-'}, false positives ${g.falsePositives ?? '-'}, verdict ${g.verdict}${rounds ? `, rounds ${rounds.join(' > ')}` : ''}, tools ${used}  $${cost.toFixed(2)} (run total $${spent.toFixed(2)})`);
   return { arm, id: c.id, set: c.set, grade: g, rounds, costUsd: cost, texts, log };

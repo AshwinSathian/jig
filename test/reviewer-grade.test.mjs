@@ -88,3 +88,12 @@ test('summary has a per-defect hit table and control verdicts', () => {
   assert.deepEqual(s.self.defects, { 'test a': '2/2', 'test b': '1/2' });
   assert.deepEqual(s.self.controlVerdicts, ['ready']);
 });
+
+test('indented sub-bullets elaborate a finding and are not counted as more findings', () => {
+  const text = 'Verdict: fix first\nFindings:\n1. [Important] a\n   - detail one\n   - detail two\n2. [Nit] b\nNot checked: none';
+  assert.equal(grade(text, control).falsePositives, 1);
+});
+
+test('a ready review with no Findings section has no findings, even with notes on what holds', () => {
+  assert.equal(grade('Verdict: ready\n\n- **Reuse:** totals exists.\n- **Keys:** the labels hold.', control).falsePositives, 0);
+});
