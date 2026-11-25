@@ -49,10 +49,11 @@ Done when:
 - C1 and C2 pass under \`jig verify\`
 
 ## Decisions
-- [one-way] Add a \`notes\` table (id, customer_id, body, created_at) in migration \`002_notes.sql\`, with a down migration. Reason: a customer has many notes; a column would hold only one. Decided: owner 2026-11-25
+- [one-way] Add a \`notes\` table (id, customer_id, author, body, created_at) in migration \`002_notes.sql\`, with a down migration. Reason: a customer has many notes, each by a known user; a column would hold only one. Decided: owner 2026-11-25
 - Reuse \`formatCurrency(cents)\` from \`src/lib/format.js\` for the totals. Reason: it already formats USD.
 - Build the list with one \`db.getOrderTotalsByCustomer()\` call. Reason: a query per customer is N+1.
-- POST /customers/:id/notes calls \`requireAuth(headers)\` and returns 401 without a session. Reason: only signed-in users may add notes.
+- POST /customers/:id/notes calls \`requireAuth(headers)\` and returns 401 without a session, 404 for an unknown customer, and 400 for an empty body or one over 2,000 characters. Any signed-in user may add a note to any customer. Reason: notes are shared team context, and only signed-in users may write them.
+- Notes are returned as data, never rendered as HTML by the API. Reason: escaping belongs to the client that renders them.
 
 ## Out of scope
 - Editing or deleting notes.
@@ -61,19 +62,19 @@ Done when:
 - None.
 
 ## Assumptions
-- Notes are plain text, at most 2,000 characters.
+- Notes are plain text.
 
 ## Slices
 
 ### S1: Notes route [todo]
-Goal: POST /customers/:id/notes stores a note for a signed-in user and returns 201; without a session it returns 401.
-Touch: \`src/app.js\`, \`migrations/002_notes.sql (new)\`, \`test/notes.test.js (new)\`
-Checks: C1
+Goal: POST /customers/:id/notes stores the note with its author and returns 201 with the stored note; 401 without a session, 404 for an unknown customer, 400 for an empty or oversize body.
+Touch: \`src/app.js\`, \`migrations/002_notes.sql (new)\`, \`migrations/002_notes.down.sql (new)\`, \`test/notes.test.js (new)\`
+Checks: C1, C3
 
 ### S2: Totals in the list [todo]
-Goal: GET /customers returns each customer with its total formatted by \`formatCurrency\`, from one totals query.
-Touch: \`src/list.js (new)\`, \`test/list.test.js (new)\`
-Checks: C2
+Goal: GET /customers returns each customer with its total formatted by \`formatCurrency\`, built by \`listCustomers(db)\` from one \`getOrderTotalsByCustomer\` call however many customers there are.
+Touch: \`src/list.js (new)\`, \`src/app.js\`, \`test/list.test.js (new)\`
+Checks: C2, C4, C5
 
 ## Log
 - 2026-11-25: Drafted.
@@ -81,6 +82,9 @@ Checks: C2
 const FIXED_CHECKS = { version: 1, checks: [
   { id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node --test test/notes.test.js', timeout_s: 30, fast: true, protects: ['test/notes.test.js'] },
   { id: 'C2', slice: 'S2', kind: 'acceptance', cmd: 'node --test test/list.test.js', timeout_s: 30, fast: true, protects: ['test/list.test.js'] },
+  { id: 'C3', slice: 'S1', kind: 'regression', cmd: 'node --test test/*.test.js', timeout_s: 60, fast: true },
+  { id: 'C4', slice: 'S2', kind: 'regression', cmd: 'node --test test/*.test.js', timeout_s: 60, fast: true },
+  { id: 'C5', slice: 'S2', kind: 'e2e', cmd: 'node --test test/e2e.test.js', timeout_s: 60, fast: true, protects: ['test/e2e.test.js'] },
 ] };
 const CHECKS = { version: 1, checks: [
   { id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node -e "process.exit(0)"', timeout_s: 10, fast: true },
@@ -105,8 +109,9 @@ export default {
   fixed: {
     'docs/plans/notes/PLAN.md': FIXED,
     'docs/plans/notes/checks.json': JSON.stringify(FIXED_CHECKS, null, 2),
-    'test/notes.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { handle } from '../src/app.js';\ntest('notes need a session', () => { assert.equal(handle('POST', '/customers/1/notes').status, 401); });\ntest('a signed-in user adds a note', () => { assert.equal(handle('POST', '/customers/1/notes', { authorization: 't-alice' }).status, 201); });\n",
-    'test/list.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { listCustomers } from '../src/list.js';\ntest('totals are formatted', async () => { assert.deepEqual(await listCustomers(), []); });\n",
+    'test/notes.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { handle } from '../src/app.js';\nconst alice = { authorization: 't-alice' };\ntest('notes need a session', () => { assert.equal(handle('POST', '/customers/1/notes', {}, { body: 'x' }).status, 401); });\ntest('a note is stored with its author', () => { const r = handle('POST', '/customers/1/notes', alice, { body: 'call back Monday' }); assert.equal(r.status, 201); assert.deepEqual({ author: r.body.author, body: r.body.body, customer: r.body.customer_id }, { author: 'alice', body: 'call back Monday', customer: 1 }); });\ntest('unknown customer is 404', () => { assert.equal(handle('POST', '/customers/999/notes', alice, { body: 'x' }).status, 404); });\ntest('empty and oversize bodies are 400', () => { assert.equal(handle('POST', '/customers/1/notes', alice, { body: '' }).status, 400); assert.equal(handle('POST', '/customers/1/notes', alice, { body: 'x'.repeat(2001) }).status, 400); });\n",
+    'test/e2e.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { handle } from '../src/app.js';\ntest('a signed-in user adds a note, then sees totals in the list', async () => { const alice = { authorization: 't-alice' }; assert.equal(handle('POST', '/customers/1/notes', alice, { body: 'hello' }).status, 201); const r = await handle('GET', '/customers', alice); assert.equal(r.status, 200); assert.ok(Array.isArray(r.body) && r.body.every((c) => /^\\$[\\d,]+\\.\\d{2}$/.test(c.total))); });\n",
+    'test/list.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { listCustomers } from '../src/list.js';\nconst fakeDb = () => { const calls = { totals: 0, perCustomer: 0 }; return { calls, async getCustomers() { return [{ id: 1, name: 'Ann' }, { id: 2, name: 'Bo' }]; }, async getOrderTotalsByCustomer() { calls.totals++; return new Map([[1, 123456], [2, 0]]); }, async getOrdersForCustomer() { calls.perCustomer++; return []; } }; };\ntest('totals are formatted as currency', async () => { const db = fakeDb(); assert.deepEqual(await listCustomers(db), [{ id: 1, name: 'Ann', total: '$1,234.56' }, { id: 2, name: 'Bo', total: '$0.00' }]); });\ntest('one totals query, none per customer', async () => { const db = fakeDb(); await listCustomers(db); assert.deepEqual(db.calls, { totals: 1, perCustomer: 0 }); });\n",
   },
   defects: [
   ['check that cannot fail (C1)', /C1[\s\S]{0,240}?(always pass|can(no|')t fail|exit\(0\)|trivial|no-op|passes regardless|vacuous|verifies nothing|stub)|(always pass|can(no|')t fail|exit\(0\))[\s\S]{0,160}?C1/i],

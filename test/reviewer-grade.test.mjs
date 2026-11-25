@@ -51,3 +51,40 @@ test('summary keeps the test set apart from tuning, per arm', () => {
   assert.equal(s.self.testRecall, 0.4);
   assert.ok(Math.abs(s.fresh.costUsd - 0.4) < 1e-9);
 });
+
+// From the adversarial review before the paid run.
+test('findings are counted only inside the Findings block, in any common list form', () => {
+  const fmt = (lines) => `Verdict: fix first\nFindings:\n${lines}\nNot checked:\n1. the migration\n2. CI`;
+  for (const l of ['1. [Important] x', '### 1. [Important] x', '**1.** [Important] x', '1) [Important] x', '- [Important] x', '* [Important] x']) {
+    assert.equal(grade(fmt(l), control).falsePositives, 1, l);
+  }
+  assert.equal(grade('Verdict: ready\nFindings: none\nNot checked:\n1. a\n2. b', control).falsePositives, 0, 'Not checked list is not findings');
+  assert.equal(grade('Verdict: ready\nFindings:\n1. [Nit] a\nEarlier findings:\n1. fixed', control).falsePositives, 0);
+});
+
+test('verdict tolerates backticks and bold', () => {
+  assert.equal(verdict('Verdict: `ready`'), 'ready');
+  assert.equal(verdict('**Verdict:** fix first'), 'fix first');
+});
+
+test('a failed run is invalid, not a perfect control or a zero-recall miss', () => {
+  assert.equal(grade('', control).valid, false);
+  assert.equal(grade('Here is my review.', control).valid, false, 'no verdict and no findings section');
+  assert.equal(grade('Verdict: ready\nFindings: none', control).valid, true);
+  const s = summarize([
+    { arm: 'fresh', set: 'control', grade: { valid: false, recall: null, falsePositives: 0, found: [] } },
+    { arm: 'fresh', set: 'control', grade: { valid: true, recall: null, falsePositives: 2, found: [] } },
+  ]);
+  assert.equal(s.fresh.controlFalsePositives, 2, 'invalid runs are excluded');
+  assert.equal(s.fresh.invalid, 1);
+});
+
+test('summary has a per-defect hit table and control verdicts', () => {
+  const s = summarize([
+    { arm: 'self', set: 'test', grade: { valid: true, recall: 0.5, found: [{ label: 'a', hit: true }, { label: 'b', hit: false }] } },
+    { arm: 'self', set: 'test', grade: { valid: true, recall: 1, found: [{ label: 'a', hit: true }, { label: 'b', hit: true }] } },
+    { arm: 'self', set: 'control', grade: { valid: true, recall: null, falsePositives: 0, verdict: 'ready', found: [] } },
+  ]);
+  assert.deepEqual(s.self.defects, { 'test a': '2/2', 'test b': '1/2' });
+  assert.deepEqual(s.self.controlVerdicts, ['ready']);
+});

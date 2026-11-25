@@ -44,28 +44,53 @@ function scaffold(files) {
 }
 
 const A = arms({ jigDir: JIG, superpowersDir: '' });
-const TOOLS = ['--allowedTools', 'Read,Glob,Grep,Agent,Skill,Write,Bash(jig:*),Bash(git:*),Bash(node:*)'];
+// Only the fresh arm may start a subagent. Plain and self get the same read
+// tools (self also needs Write for the plan), so the arms differ in context
+// and rubric, not in reach.
+const tools = (extra) => ['--allowedTools', ['Read', 'Glob', 'Grep', 'Bash(jig:*)', 'Bash(git:*)', 'Bash(node:*)', ...extra].join(',')];
+// `jig` inside every arm is this checkout, not an older installed copy
+// (2.0.1 rejects the `e2e` check kind and would fault the clean control).
+const ENV = { ...process.env, PATH: `${join(JIG, 'bin')}:${process.env.PATH}` };
+const FORMAT = 'Report "Verdict: ready | fix first | rethink", then "Findings:" as a numbered list, each tagged [Important], [Nit] or [Pre-existing], with evidence. "Findings: none" is a valid answer if the plan is sound.';
+// A ceiling on the whole run, not just per call (33 calls times a per-call
+// cap would allow far more than the estimate). --budget <usd>, default 10.
+const BUDGET = Number(opt('budget', 10));
+let spent = 0;
 const ARMS = {
   // No jig: a fresh session asked to review.
-  plain: { flags: A.none, setup: (c) => c.files, prompt: (c) => `Review the plan at ${c.plan} against this repository and list its defects as a numbered list. Do not edit files.` },
+  plain: { flags: A.none, tools: tools([]), setup: (c) => c.files, prompt: (c) => `Review the plan at ${c.plan} against this repository. It was written for this request: "${c.request}". ${FORMAT} Do not edit files.` },
   // jig's fresh-context reviewer, in a subagent that never saw the plan written.
-  fresh: { flags: A.jig, setup: (c) => c.files, prompt: (c, prev) => (prev
+  fresh: { flags: A.jig, tools: tools(['Agent']), setup: (c) => c.files, prompt: (c, prev) => (prev
     ? `Run the jig-reviewer agent in plan mode on ${c.plan}, round ${prev.round}. Original request: "${c.request}". Its earlier findings:\n${prev.text}\nLast reviewed commit: ${prev.commit}. Report its output verbatim. Do not edit files.`
     : `Run the jig-reviewer agent in plan mode on ${c.plan} (original request: "${c.request}"). Report its output verbatim. Do not edit files.`) },
   // The author reviews its own plan in the same session. An approximation:
   // the session writes a plan it was handed rather than one it composed.
-  self: { flags: A.jig, setup: (c) => Object.fromEntries(Object.entries(c.files).filter(([p]) => p !== c.plan)), prompt: (c) => `You are drafting a plan for this request: "${c.request}". Write the following plan to ${c.plan} exactly as given; it is your draft.\n\n${c.files[c.plan]}\n\nThen, before handing it to the owner, check your own plan yourself (no subagents): review it against this repository and report "Verdict: ready | fix first | rethink" and numbered findings, each tagged [Important], [Nit] or [Pre-existing]. Edit no other files.` },
+  self: { flags: A.jig, tools: tools(['Write']), setup: (c) => Object.fromEntries(Object.entries(c.files).filter(([p]) => p !== c.plan)), prompt: (c) => `You are drafting a plan for this request: "${c.request}". Write the following plan to ${c.plan} exactly as given; it is your draft.\n\n${c.files[c.plan]}\n\nThen, before handing it to the owner, check your own plan yourself, without subagents or skills: review it against this repository. ${FORMAT} Edit no other files.` },
 };
 
 async function review(arm, c) {
+  if (spent > BUDGET) {
+    console.error(`skipped ${arm} ${c.id}: spent $${spent.toFixed(2)} of the $${BUDGET} ceiling`);
+    return { arm, id: c.id, set: c.set, grade: { valid: false, found: [] }, skipped: true, costUsd: 0 };
+  }
+  const startSpent = spent;
   const a = ARMS[arm];
   const dir = scaffold(a.setup(c));
-  const ask = (prev) => runClaude({ cwd: dir, prompt: a.prompt(c, prev), armFlags: a.flags, budgetUsd: 3, timeoutMs: 15 * 60_000, extra: TOOLS });
+  const ask = (prev) => runClaude({ cwd: dir, prompt: a.prompt(c, prev), armFlags: a.flags, budgetUsd: 1.5, timeoutMs: 15 * 60_000, extra: a.tools, env: ENV });
+  // What each round did, so a run can be audited: did fresh really start the
+  // reviewer subagent, did self stay inside its own context?
+  const log = [];
+  const record = (out) => {
+    log.push({ tools: out.tools.map((t) => t.name), skills: out.skills, killed: out.killed, error: out.result?.is_error ?? !out.result, stderr: out.stderr.slice(-500) });
+    spent += usageOf(out.result)?.costUsd ?? 0;
+    return out.result?.result ?? '';
+  };
   let out = await ask(null);
-  let text = out.result?.result ?? '';
+  let text = record(out);
   const texts = [text];
-  let cost = usageOf(out.result)?.costUsd ?? 0;
   const g = grade(text, c);
+  // Also invalid when the run errored, or the fresh arm never started the subagent.
+  if (log[0].error || log[0].killed || (arm === 'fresh' && !log[0].tools.some((t) => t === 'Agent' || t === 'Task'))) g.valid = false;
   // Rounds-to-pass: the fresh reviewer re-reviews after the builder's fix.
   let rounds = null;
   if (arm === 'fresh' && c.fixed) {
@@ -73,16 +98,19 @@ async function review(arm, c) {
     while (rounds[rounds.length - 1] !== 'ready' && rounds.length < MAX_ROUNDS) {
       const commit = git(dir, 'rev-parse', '--short', 'HEAD');
       for (const [p, b] of Object.entries(c.fixed)) writeFileSync(join(dir, p), b);
-      git(dir, 'commit', '-qa', '--allow-empty', '-m', `fix round ${rounds.length}`); // round 3 may re-review an unchanged fix
+      git(dir, 'add', '-A'); // new test files in the fix, not only edits
+      git(dir, 'commit', '-q', '--allow-empty', '-m', `fix round ${rounds.length}`); // round 3 may re-review an unchanged fix
+      if (spent > BUDGET) break;
       out = await ask({ round: rounds.length + 1, text, commit });
-      text = out.result?.result ?? '';
+      text = record(out);
       texts.push(text);
-      cost += usageOf(out.result)?.costUsd ?? 0;
       rounds.push(verdict(text));
     }
   }
-  console.error(`${arm} ${c.id} (${c.set}): recall ${g.recall ?? '-'}, false positives ${g.falsePositives ?? '-'}, verdict ${g.verdict}${rounds ? `, rounds ${rounds.join(' > ')}` : ''}  $${cost.toFixed(2)}`);
-  return { arm, id: c.id, set: c.set, grade: g, rounds, costUsd: cost, texts };
+  const cost = spent - startSpent;
+  const used = [...new Set(log.flatMap((l) => l.tools))].join('/') || 'none';
+  console.error(`${arm} ${c.id} (${c.set})${g.valid ? '' : ' INVALID'}: recall ${g.recall ?? '-'}, false positives ${g.falsePositives ?? '-'}, verdict ${g.verdict}${rounds ? `, rounds ${rounds.join(' > ')}` : ''}, tools ${used}  $${cost.toFixed(2)} (run total $${spent.toFixed(2)})`);
+  return { arm, id: c.id, set: c.set, grade: g, rounds, costUsd: cost, texts, log };
 }
 
 const chosen = cases.filter((c) => set === 'all' || c.set === set);
