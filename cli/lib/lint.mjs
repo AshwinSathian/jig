@@ -113,6 +113,16 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
       warn('J21', 0, `acceptance check ${c.id} runs \`${c.cmd}\` with no filter for its own tests, so it can pass before the behaviour exists; point it at the new test file or name`);
     }
   }
+  // J22: a check that retries or sleeps hides a flaky test instead of fixing
+  // it. J23: a check that can't fail checks nothing.
+  const RETRY = /--retr(y|ies)\b|--reruns?\b|\bretry\b|\bsleep\s+\d|\buntil\b[\s\S]*\bdo\b/;
+  const CANT_FAIL = /\|\|\s*(true|:)\s*($|[;&|)])|;\s*exit\s+0\s*$|\|\|\s*exit\s+0\b/;
+  for (const c of checksData?.checks ?? []) {
+    if (typeof c.cmd !== 'string') continue;
+    if (RETRY.test(c.cmd)) warn('J22', 0, `check ${c.id} retries or sleeps (\`${c.cmd}\`); find the flaky test's cause, or delete the test and log why`);
+    if (CANT_FAIL.test(c.cmd)) err('J23', 0, `check ${c.id} can't fail (\`${c.cmd}\`); remove the \`|| true\`, \`|| :\` or \`exit 0\``);
+  }
+  const checkSlice = new Map((checksData?.checks ?? []).map((c) => [c.id, c.slice]));
   const slicesSec = section(plan, 'Slices');
   if (slicesSec && !plan.slices.length) err('J08', slicesSec.start, 'Slices section has no "### S<n>: <title> [state]" headings');
   const doing = [];
@@ -142,6 +152,9 @@ export function lintText(text, { root = null, rel = null, checks = null, paths =
       if (!ids.length && !hasCmd) err('J09', s.fields.checks.line, `slice ${s.id} Checks: names no check IDs or commands`);
       if (checksData) {
         for (const id of ids) if (!knownIds.has(id)) err('J10', s.fields.checks.line, `check ${id} is not in checks.json`);
+        // jig verify runs a slice's checks by their `slice` field, so a check
+        // listed here but owned by another slice never runs for this one.
+        for (const id of ids) if (knownIds.has(id) && checkSlice.get(id) !== s.id) warn('J24', s.fields.checks.line, `check ${id} belongs to ${checkSlice.get(id)}, so \`jig verify\` won't run it for ${s.id}; give ${s.id} its own check`);
       } else if (ids.length && checks) {
         err('J10', s.fields.checks.line, `slice ${s.id} names check IDs but there is no checks.json (a brief plan may give commands in backticks instead)`);
       }

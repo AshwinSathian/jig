@@ -53,15 +53,33 @@ const MUTATIONS = [
   ['J17', full, (t) => t, { exists: true, data: { version: 1, checks: [{ id: 'C1', slice: 'S7', kind: 'vibes', cmd: '', timeout_s: 9999 }] }, error: null }],
   ['J18', full, (t) => t.replace('Now: S2 in progress', 'Now: S5 in progress')],
   ['J19', full, (t) => t.replace('[done]', '[doing]')],
+  ['J22', full, (t) => t, withCmd('C1', 'npx jest --retries 3 export.accept'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'sleep 5 && node -e ""'), 'warning'],
+  ['J22', full, (t) => t, withCmd('C1', 'until node -e ""; do echo again; done'), 'warning'],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || true')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept; exit 0')],
+  ['J23', full, (t) => t, withCmd('C1', 'npm test -- export.accept || :')],
+  ['J24', full, (t) => t.replace('Checks: C3, C4', 'Checks: C3, C4, C1'), null, 'warning'],
 ];
 
-for (const [rule, base, mutate, checks] of MUTATIONS) {
+// The good full fixture's checks with one cmd replaced.
+function withCmd(id, cmd) {
+  const data = JSON.parse(JSON.stringify(fullChecks.data));
+  data.checks.find((c) => c.id === id).cmd = cmd;
+  return { exists: true, data, error: null };
+}
+
+for (const [rule, base, mutate, checks, level = 'error'] of MUTATIONS) {
   test(`mutation for ${rule} is caught`, () => {
     const isFull = base === full;
     const ps = lint(mutate(base), checks ?? (isFull ? fullChecks : NO_CHECKS));
-    assert.ok(ps.some((p) => p.rule === rule && p.level === 'error'), `expected ${rule}, got ${JSON.stringify(ps.map((p) => p.rule))}`);
+    assert.ok(ps.some((p) => p.rule === rule && p.level === level), `expected ${level} ${rule}, got ${JSON.stringify(ps.map((p) => `${p.level} ${p.rule}`))}`);
   });
 }
+
+test('the good full plan raises no J22, J23 or J24', () => {
+  assert.deepEqual(lint(full, fullChecks).filter((p) => ['J22', 'J23', 'J24'].includes(p.rule)), []);
+});
 
 test('vague words and risk grids are warnings, not errors', () => {
   const ps = lint(brief.replace('Goal: requests past 10', 'Goal: soon, requests past 10').replace('## Log', 'Likelihood: High, Impact: High, Score 9\n\n## Log'));

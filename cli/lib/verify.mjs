@@ -71,6 +71,13 @@ export function changedChecks(root, plan, checksRel, now) {
   return { changed: loosened(snapshot(data.checks), now), changedSince: 'HEAD' };
 }
 
+// The line a slice commit carries, so `git log --grep 'Verified: none'`
+// finds the commits nothing verified.
+export function trailer(results, slice, tree) {
+  const parts = results.map((r) => `${r.id} ${r.pass ? 'pass' : 'FAIL'}`).join(', ');
+  return `Verified: ${slice ? `${slice} ` : ''}${parts}${tree ? ` (tree ${tree.slice(0, 7)})` : ''}`;
+}
+
 export function changedNote({ changed, changedSince, unreadable } = {}) {
   if (unreadable) return unreadable;
   return changed?.length ? `checks changed since ${changedSince}: ${changed.map((c) => `${c.id} (${c.why})`).join(', ')}` : '';

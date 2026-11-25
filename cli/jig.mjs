@@ -5,7 +5,7 @@ import { statSync, readdirSync, existsSync } from 'node:fs';
 import { lintFile } from './lib/lint.mjs';
 import { newPlan } from './lib/scaffold.mjs';
 import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './lib/status.mjs';
-import { verifyPlan, changedNote } from './lib/verify.mjs';
+import { verifyPlan, changedNote, trailer } from './lib/verify.mjs';
 import { repoRoot } from './lib/git.mjs';
 
 const VERSION = '2.0.1';
@@ -118,6 +118,7 @@ async function main() {
       for (const r of res.results) console.log(`${r.pass ? 'PASS' : 'FAIL'} ${r.id} (${(r.ms / 1000).toFixed(1)}s) ${r.cmd}${r.pass ? '' : `\n     ${r.why}`}`);
       const failed = res.results.filter((r) => !r.pass).length;
       console.log(`${res.results.length - failed}/${res.results.length} passed${flags.record === 'true' ? ' · recorded in the plan Log' : ''}`);
+      if (flags.record === 'true') console.log(`\nFor the slice commit:\n${trailer(res.results, slice, res.tree)}`);
       return failed ? 1 : 0;
     }
 

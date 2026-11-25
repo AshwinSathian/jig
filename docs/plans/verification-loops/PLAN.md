@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S2 security follow-ups, then S4 flaky checks and Verified trailer. S1 to S3 done.
+Now: S5 observe mode next. S1 to S4 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -60,7 +60,7 @@ Goal: the Stop hook blocks once per new failing record, and at round 3 says to s
 Touch: `cli/lib/hooks.mjs`, `cli/lib/verify.mjs`, `skills/build/SKILL.md`, `test/rounds.test.mjs (new)`
 Checks: C5, C6, R3
 
-### S4: Flaky checks and Verified trailer [todo]
+### S4: Flaky checks and Verified trailer [done]
 Goal: lint warns on retry and sleep in a check (J22), errors on a check that can't fail (J23), and warns on a slice that lists another slice's check (J24); `jig verify --record` prints a `Verified:` line; build step 5, failure-modes.md and team.md carry the rules.
 Touch: `cli/lib/lint.mjs`, `cli/lib/verify.mjs`, `cli/jig.mjs`, `test/lint.test.mjs`, `test/verify.test.mjs`, `skills/build/SKILL.md`, `references/failure-modes.md`, `references/team.md`, `references/plan-format.md`
 Checks: C7, C8, C9, R4
@@ -121,3 +121,6 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: S2 follow-up from two background security reviews. An unreadable untracked file made `treeId` throw before the protected-test check ran, so the pre-edit hook failed open. A new test reproduced it. Each file is now hashed in its own try (unreadable files by size and mtime), FIFOs and devices are never opened, and the start tree is taken after the protection checks. An Edit to an active PLAN.md that the hook can't simulate now asks, matching checks.json.
 - 2026-11-25: S3 diff review: ready, 5 minor findings, all applied. `cli/lib/verify.mjs` is added to S3's Touch, because evidence records now keep the failure reason. Rounds are now counted per active plan from that plan's own current record. Before, a later verify of a second plan hid the first plan's round 3, which this repo would hit with jig-v2 also in progress. The cross-plan test now fails without the fix. A dead regex alternative is removed. The round-3 reason allows continuing when the owner says so. A ponytail note marks the full evidence parse.
 - 2026-11-25 19:41: jig verify S3: C5 pass; C6 pass; R3 pass
+- 2026-11-25 19:42: jig verify S4: C7 pass; C8 pass; C9 pass; R4 pass
+- 2026-11-25 19:43: jig verify S4: C7 pass; C8 pass; C9 pass; R4 pass
+- 2026-11-25: S4 done. Seven new lint mutations failed before the rules existed. J22 warns on a check that retries or sleeps, J23 errors on one that can't fail (`|| true`, `|| :`, `; exit 0`), and J24 warns on a slice that lists another slice's check. The mutation table takes an optional level for warnings. J24 found four such cases in jig-v2's plan, which are left as warnings because that plan is out of scope. `jig verify --record` prints a `Verified:` line for the commit, and build step 5, failure-modes.md, team.md and plan-format.md carry the rules.
