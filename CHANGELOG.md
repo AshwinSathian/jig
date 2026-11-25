@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.0 (2026-11-25)
+
+The rest of the verification review (rows 6 to 10).
+
+- **Run the change, not just its tests.** `e2e` and `differential` are now check kinds. The plan skill and the plan reviewer ask for one check that runs the real app, CLI or service whenever a slice changes something a user sees. `references/fundamentals.md` adds the four property shapes (round-trip, invariant, idempotency, equivalence) and how to write a differential test: normalise the noise, and keep a list of approved differences.
+- **Doctor D7** looks for a way to drive the app: a verify skill, an e2e or HTTP test runner, a runner config, `.maestro/`, or an e2e script. It's a gap only for an app, and a note for a CLI or library. A review of the first version found eight false results, and each now has a test.
+- **Reviewer rounds.** jig-reviewer takes its earlier findings and the last commit it reviewed, looks only at the new diff, names a bug's whole class instead of one instance, and returns `rethink` after round 3. Severities are now Important, Nit and Pre-existing.
+- **REVIEW.md checklist.** In diff mode the reviewer reads `REVIEW.md` from the plan's baseline commit and applies the `When: · Check: · Source:` entries that match. The guard skill proposes an entry only when the problem happened twice, can be seen in a diff, and survived an attempt to disprove it. You commit the file yourself.
+- **Observe first.** The guard skill now starts every new gate in observe mode.
+- **Reviewer eval with controls.** Separate tuning and held-out cases, a clean control for counting false positives, rounds-to-pass, and plain, fresh and self-review arms. `--dry` prints the cost first. We haven't done the full run yet.
+
 ## 2.1.0 (2026-11-25)
 
 This release closes the five gaps in `docs/research/2026-11-verification-review.md`. Each fix started with a test that reproduced the gap on 2.0.1.

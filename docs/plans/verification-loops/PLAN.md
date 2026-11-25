@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S10 reviewer eval is built and dry-run tested (about $3 for a full run); waiting for the owner yes before the full run and REPORT.md. Release v2.1.0 not yet created. S1 to S9 done.
+Now: 2.2.0 PR open on verification-loops-2.2.0. Plan stays building: C20 needs the reviewer eval run, and C11 needs the owner to approve rewording it (it pins version 2.1.0). Release v2.1.0 not yet created.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -90,13 +90,13 @@ Goal: diff mode applies `When: · Check: · Source:` entries from `git show <Bas
 Touch: `agents/jig-reviewer.md`, `skills/guard/SKILL.md`, `references/mechanisms.md`
 Checks: C18, R9
 
-### S10: Reviewer eval with controls [doing]
+### S10: Reviewer eval with controls [done]
 Goal: grading moves to `evals/reviewer/grade.mjs`, with recall, false positives on clean controls and rounds-to-pass; the eval has separate tuning and test cases and self-review and fresh-review arms; the dry-run cost is reported, the owner agrees to the full run, and the result goes into REPORT.md.
 Touch: `evals/reviewer/run.mjs`, `evals/reviewer/grade.mjs (new)`, `evals/reviewer/cases/ (new)`, `test/reviewer-grade.test.mjs (new)`, `evals/results/REPORT.md`
 Checks: C19, C20, R10
 - Risk: the self-review arm isn't really self-review, because a pasted plan isn't the session's own work. Detect: the arm's transcript shows it treating the plan as someone else's. Fallback: the session writes the plan from the request in the same run, reviewed against defects that appear in its own output, and the report labels the arm.
 
-### S11: Dogfood and release 2.2.0 [todo]
+### S11: Dogfood and release 2.2.0 [done]
 Goal: same as S6 for 2.2.0 (Log line "observe-mode dogfood 2.2.0"), plus D7 on the chattermeter clone and on jig.
 Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`
 Checks: C21, C22, C23, C25, R11
@@ -149,3 +149,7 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25 21:14: jig verify S7: C13 pass; C14 pass; C15 pass; R7 pass
 - 2026-11-25: S7 diff review: fix first, 8 findings, all reproduced by new tests and fixed. D7 now runs for repos with no root package.json (Python, Go) and walks four levels, so deep workspace e2e packages count. Only runtime `dependencies` of a package without `bin` make it an app, so react in dev or peer deps, or in `examples/`, no longer gives a gap. Supertest and pactum count as HTTP-level runners. Scripts count only by an e2e or integration name or a real runner command, so `rm -rf playwright-report` is no longer e2e. The npm `maestro` package is dropped in favour of a `.maestro/` directory. Runner config files count. The verify skill is found with one readdir. chattermeter still gives ok, and jig still gives the note.
 - 2026-11-25: S10 in progress. Cases now live in `evals/reviewer/cases/`: `notes` (tuning, the original 5 seeded defects, now with a fixed plan for rounds-to-pass), `invoices` (held out, 5 defects, graders frozen before any review of it was read) and `clean-flag` (a clean control, where an Important finding is a false positive). Grading moved to `evals/reviewer/grade.mjs` with 5 unit tests. There are three arms: plain review, the fresh jig-reviewer subagent, and a same-session self-review. The self-review arm writes a plan it was handed rather than one it composed, which the report will label. Dry runs, all on the fresh arm on invoices, each spent $0.30 for 3 reviews ($0.10 each). The first crashed on an empty round-3 commit and lost its output to `tail`. The second and third ran; the third gave recall 0.8, and one miss looks like a grader regex ("didn't ask for" next to PDF), which stays frozen and will be noted. Rounds went fix first, fix first, rethink, because my "fixed" invoices plan still had real gaps that the reviewer named correctly. Fixing it from that review would tune on the test set, so rounds-to-pass moved to the tuning case. The reviewer tracked earlier findings without repeating them and returned rethink after round 3, as S8 specifies. Full-run estimate: 3 arms × 3 cases × 3 runs, plus rounds, about $3.
+- 2026-11-25: S10 closed with an exception. The owner declined the full eval run (about $3). The eval code, cases and graders are in and tested (C19), but C20 fails, because REPORT.md has no results. I didn't write a "not run" section there: C20 only greps for "false positives" and "rounds-to-pass", so that text would make it pass with no results behind it. The Outcome's Done-when therefore isn't met, and the plan stays `building` until `node evals/reviewer/run.mjs` runs and REPORT.md reports its numbers.
+- 2026-11-25: observe-mode dogfood 2.2.0 on a fresh `git clone --local` of chattermeter (ccf9fa52). In 12 scripted sessions the gates logged all 10 expected entries, with 0 unexpected and 0 missed. The hooks didn't change in 2.2.0, so this is a re-check. Hook timing: 137 ms p50, 154 ms max. D7 is ok on chattermeter (`@playwright/test`, script `e2e`, `apps/e2e/playwright.config.mts`) and a note on jig. Doctor's only gap there is `core.hooksPath` unset, which comes from the clone having no local git config. `jig lint docs/plan` gave 6 J21 warnings, unchanged. No new proposal for the owner.
+- 2026-11-25 21:26: jig verify S11: C21 pass; C22 pass; C23 pass; R11 pass; C25 pass
+- 2026-11-25: All plan checks: 33 of 35 pass. C20 fails because the reviewer eval hasn't run (see S10). C11 fails because it pins `version = 2.1.0`, which was true for the 2.1.0 release and can't hold after the 2.2.0 bump. That is a flaw in how I wrote the check, and the plan review didn't catch it. The check is frozen, so the proposed change waits for the owner: test `grep -q "^## 2.1.0" CHANGELOG.md` and the lint only, and drop the version pin.
