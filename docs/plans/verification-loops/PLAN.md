@@ -72,7 +72,7 @@ Checks: C10, R5
 
 ### S6: Dogfood and release 2.1.0 [doing]
 Goal: doctor, lint and the hooks in observe mode run on the chattermeter clone; a Log line starting "observe-mode dogfood 2.1.0" gives the observe event count, false positives and hook p50; versions are bumped, the CHANGELOG and README are updated where behaviour changed, and the PR is open with CI green.
-Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`
+Touch: `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `CHANGELOG.md`, `README.md`, `evals/dogfood-hooks.mjs (new)`
 Checks: C11, C12, C24, R6
 
 ### S7: Running the change [todo]
@@ -130,3 +130,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: The first S4 re-verify above failed R4 because `npm test` picked up S5's untracked `observe.test.mjs`, which fails until S5 lands. I moved it aside and verified again (the line above). The fix commit was amended so its trailer reports that run.
 - 2026-11-25 20:05: jig verify S5: C10 pass; R5 pass
 - 2026-11-25: S5 done. Three of four new observe tests failed before the change. Every ask and block now names its gate (protects, freeze, install, tree, rounds). With `JIG_GATES=observe` (all gates) or `observe:<gates>`, `runHook` appends the decision to `.git/jig/observe.jsonl` and prints nothing. Context-only output is unchanged. The new rules gate (REVIEW.md, CLAUDE.md, `.claude/`, `.github/workflows/`) only logs, in any repo, until the owner decides from the log. `evals/dogfood-hooks.mjs` moves to S6, where it is used.
+- 2026-11-25 20:08: jig verify: C10 pass; R5 pass
+- 2026-11-25: S5 diff review: ready, 4 minor findings, all applied. The rules gate now matches CLAUDE.md, REVIEW.md and `.claude/` at any depth, as Claude Code reads them. An edit that writes `JIG_GATES` or `JIG_HOOKS_OFF` into a rule file now asks. It has no gate name, so observe mode can't silence it. Before, such an edit could switch every gate off and only be logged. A test now checks that a rule-file edit keeps its scope warning, and `evals/dogfood-hooks.mjs` is added to S6's Touch.

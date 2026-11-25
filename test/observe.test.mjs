@@ -58,3 +58,24 @@ test('rules gate: rule-file edits are logged, not asked, even with no plan and n
   assert.equal(hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, 'src/x.js'), content: 'x' } })), null);
   assert.deepEqual(log(dir).map((e) => `${e.gate} ${e.file}`), ['rules CLAUDE.md', 'rules REVIEW.md', 'rules .claude/settings.json', 'rules .github/workflows/ci.yml']);
 });
+
+test('rules gate: nested rule files count, and a scope warning survives the log entry', () => {
+  const { dir } = planRepo();
+  const warn = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md'), old_string: 'a', new_string: 'b' } }));
+  assert.match(warn.hookSpecificOutput.additionalContext, /outside S1's Touch list/);
+  for (const f of ['packages/web/CLAUDE.md', 'apps/api/.claude/settings.json', 'sub/REVIEW.md']) {
+    hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, f), content: 'x' } }));
+  }
+  assert.deepEqual(log(dir).map((e) => e.file), ['CLAUDE.md', 'packages/web/CLAUDE.md', 'apps/api/.claude/settings.json', 'sub/REVIEW.md']);
+});
+
+test('switches gate: an edit that would turn jig gates off asks, even in observe mode', () => {
+  const { dir } = tempRepo();
+  for (const content of ['{"env":{"JIG_GATES":"observe"}}', '{"env":{"JIG_HOOKS_OFF":"all"}}']) {
+    const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: join(dir, '.claude/settings.json'), content } }), { JIG_GATES: 'observe' });
+    assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask', content);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /JIG_(GATES|HOOKS_OFF)/);
+  }
+  const edit = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md'), old_string: 'x', new_string: 'export JIG_HOOKS_OFF=stop' } }));
+  assert.equal(edit?.hookSpecificOutput?.permissionDecision, 'ask');
+});

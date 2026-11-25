@@ -99,16 +99,26 @@ function sameFile(a, b) {
 
 // Rule files: what the agent and the reviewers are told. The Claude Code
 // code-review post treats them, and CI workflows, as paths a person reads.
-const RULE_FILES = ['REVIEW.md', 'CLAUDE.md', '.claude/', '.github/workflows/'];
+// Claude Code also reads CLAUDE.md and .claude/ below the root.
+const isRuleFile = (rel) => {
+  const parts = rel.split('/');
+  return ['CLAUDE.md', 'REVIEW.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || rel.startsWith('.github/workflows/');
+};
+const SWITCHES = /\bJIG_(GATES|HOOKS_OFF)\b/;
 
 export function preEdit(input) {
-  const out = guardEdit(input);
-  if (out?.gate) return out;
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
-  if (!file) return out;
   const root = rootOf(input);
-  const rel = relative(root, isAbsolute(file) ? file : join(root, file));
-  if (!RULE_FILES.some((p) => pathMatches(rel, p))) return out;
+  const rel = file ? relative(root, isAbsolute(file) ? file : join(root, file)) : null;
+  // Turning jig's gates off from a rule file always asks, and has no gate
+  // name, so observe mode can't silence it.
+  const ti = input.tool_input ?? {};
+  const added = [ti.content, ti.new_string, ...(Array.isArray(ti.edits) ? ti.edits.map((e) => e?.new_string) : [])].filter((s) => typeof s === 'string').join('\n');
+  if (rel && isRuleFile(rel) && SWITCHES.test(added)) {
+    return ask(undefined, `jig: this edit to ${rel} sets ${added.match(SWITCHES)[0]}, which switches jig's gates off or into observe mode. That's the owner's call.`);
+  }
+  const out = guardEdit(input);
+  if (out?.gate || !rel || !isRuleFile(rel)) return out;
   // Observe-only until the owner decides from the log, so log here and keep
   // any scope warning.
   observe(input, 'pre-edit', 'rules', ask('rules', `jig: ${rel} is a rule file (it tells agents or reviewers what to do). A person should read changes to it.`));
