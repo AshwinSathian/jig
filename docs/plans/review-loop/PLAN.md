@@ -1,0 +1,119 @@
+# Post-build review
+
+Status: approved · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
+Now: S1 next (checked landscape and spikes).
+
+## Outcome
+After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
+Done when:
+- `npm test` passes, including the router trigger tests with one negative case per trigger (C2, C3)
+- `node cli/jig.mjs review --json` on this branch prints a brief whose base, tree and triggers are checked by C4
+- the commit gate and the `Blocked:` exit pass their hook tests, and the pre-bash hook on `git commit` stays under 1,000 ms p50 (C9, C10, C11)
+- jig's skill and agent descriptions total at most 2,600 characters, each at most 1,536 (today 1,754 in total) (C12)
+- the review dogfood Log lines for 2.4.0 and 2.5.0 exist (C14, C24)
+- the review eval reports its numbers in `evals/results/REPORT.md`, or the Log says the owner declined the spend (C22)
+
+## Decisions
+- [one-way] Milestones are 2.4.0 (core review, S1–S7) and 2.5.0 (adversarial review and eval, S8–S12). Reason: 2.3.0 shipped in PR #6, which the owner merged into `main` (e21a3d6) before this plan was approved. Decided: owner 2026-11-25
+- [one-way] New public CLI contract: `jig review [--base <ref>|--pr <n>] [--json] [--record <file>] [--outcome <id> <outcome>] [--propose]`, and the record format in `docs/evidence-schema.md` with a `v` field on every line. Reason: CI and other tools read these without importing jig. Decided: owner 2026-11-25
+- [one-way] Agents set `model: opus`. Reason: the spike confirmed agent frontmatter takes `model`, and §4.3 asks for the strongest model in the family. Skills still set none (design.md, cache rule). Rejected: `inherit`, which gives a Sonnet session a Sonnet reviewer. Decided: owner 2026-11-25
+- The validator is a `validate` mode of jig-reviewer, not a new agent (accepted by the owner). Reason: one tuned reviewer prompt (brief rule 2) and one fewer listing entry. Each call is a fresh context that gets only the claim (file:line and the defect), so it never sees the finder's reasoning. Rejected: a separate `jig-validator.md`.
+- `jig-redteam` is its own agent. The skill makes a detached worktree at the head SHA with `git worktree add --detach` and passes its path, and removes it after. Reason: it needs Write, which the reviewer must never have, and the frontmatter `isolation: worktree` branches from the default branch, so the change under attack wouldn't be in it.
+- Base order: `--base` or `--pr` when given, then the active plan's slice start, then the merge-base with the default branch, then HEAD for uncommitted work (accepted by the owner; the request listed `--base` second). Reason: an explicit flag beats an inferred base.
+- The slice start is the newest commit since Baseline whose `Verified:` trailer names another slice, or Baseline when there is none. Reason: build step 5 already writes that trailer, so no new state is needed.
+- Suppressions live in REVIEW.md as `Suppress: <class> · Source: <review ids>` entries. Reason: REVIEW.md is already a rule file that is read from the base and watched by the `rules` gate, so a second file would need the same protection added again.
+- Tampering signals are found deterministically by the router: assertions removed from test files, an added `.skip`, `.only` or `exit(0)`, edits to checks.json or protected paths, and the same check failing twice on one tree in `evidence.jsonl`. The transcript is read only for what the diff can't show. Reason: a regex over the diff can't be argued with, and a monitor can be (SHADE-Arena).
+- Finding outcomes are recorded by `jig review --outcome`. The router only hints "changed since" when a later diff touched the finding's lines (accepted by the owner; the request had "fixed" detected from a later diff). Reason: a changed line doesn't show the defect is gone. A finding's id is the first 8 hex of sha256 over class, file and its lower-cased title, so it stays the same across reviews.
+- The commit gate compares the working-tree fingerprint, not the index. Reason: the index tree needs `write-tree`, which runs clean filters from a hook. It misses partial staging, so it can only under-report a commit that leaves verified changes unstaged. It reads the message from the command text (`-m`, `--message`, a heredoc) or the `-F` file. With no message (an editor), it logs "message unknown" and never blocks on that.
+- The `commit` gate and the `Blocked:` exit live in the existing pre-bash and Stop hooks. Reason: no new hook entry, so the cost per tool call doesn't grow.
+
+## Out of scope
+- Posting findings to GitHub. The report gives a ready-to-paste trailer, and posting stays with the built-in `/code-review --comment`.
+- Enforcing the `commit` or `rules` gates. Both ship observed, and the owner decides from `observe.jsonl`.
+- A second general code reviewer. The validator is the only extra layer.
+
+## Questions
+- None.
+
+## Assumptions
+- The verification-loops close-out is already done: its PLAN.md says `shipped`, with the npm and signature checks logged, on PR #6. Nothing to do here.
+- The built-in `/code-review` can be called by the model through the Skill tool, and reports findings with file, line, severity (important, pre_existing, nit) and a failure scenario. This is seen in this session's own tool list, not in the docs. S11 checks it with a run.
+- `transcript_path` is a common hook input field (hooks docs). Per-event presence and the format aren't documented, so S9 reads the transcript only when the file exists and parses, and puts "Not checked: transcript" otherwise.
+- The red team's limits (only test and repro files, no network, no `.env*`) are in its prompt and nothing enforces them: plugin agents ignore `hooks` and `permissionMode`, and Bash can reach the network. Its worktree, the skill's re-run of each repro, and the owner's ask on someone else's PR are the controls. README Limits says so.
+- Paid runs (the review eval, the trigger eval, `claude --plugin-dir .`) each wait for the owner's yes after a one-case `--dry` estimate, under a ceiling of $10 per run.
+
+## Slices
+
+### S1: Checked landscape and spikes [todo]
+Goal: `docs/research/2026-11-review-landscape.md` keeps only the claims whose primary source was opened in this slice, and tags or drops the rest. The spike answers and listing-budget numbers are each one line in the Log.
+Touch: `docs/research/2026-11-review-landscape.md (new)`
+Checks: C1
+- Risk: a source won't open, and its claim slips in untagged. Detect: C1 fails on a bullet with a URL but no tag. Fallback: tag it UNVERIFIED or drop it.
+
+### S2: `jig review` router [todo]
+Goal: `jig review` resolves the base in the Decisions' order, and prints a brief with base, head, tree fingerprint, diff stats, triggers with their matched files, REVIEW.md entries from the base whose `When:` matches, checks.json presence, and the last evidence and review records with a `current` flag. `--json` prints the same as JSON. It runs only git and gh.
+Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review.test.mjs (new)`, `test/review-triggers.test.mjs (new)`
+Checks: C2, C3, C4, R2
+- Risk: triggers misfire the way D7 did (eight false results). Detect: C3's negative cases, then the S7 dogfood counts false triggers. Fallback: narrow the pattern and add the case to C3.
+
+### S3: Review records and the schema doc [todo]
+Goal: `jig review --record <findings.json>` validates the findings and appends a versioned, tree-tied record to `.git/jig/reviews.jsonl`. `--outcome <id> fixed|wrong|intentional|didnt-matter` appends an outcome. SessionStart keeps `transcript_path` in the session state. `docs/evidence-schema.md` documents all four state files.
+Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `cli/lib/hooks.mjs`, `test/review-records.test.mjs (new)`, `docs/evidence-schema.md (new)`
+Checks: C5, C6, R3
+
+### S4: Blind reviewer, claims second, validate mode [todo]
+Goal: jig-reviewer's diff mode is two phases: blind (owner-approved intent, the diff and the repo; no Log narrative, commit messages or PR text), then claims against evidence, where a phantom change is a finding. It adds a plan-free mode on the merge-base, validate mode, "Declined to judge", a "plan is wrong" class, quoted rules, swallowed errors per catch, reachability for security findings, a confidence label, inline fixes, and `model: opus`. Reruns of the same model never count as independent votes.
+Touch: `agents/jig-reviewer.md`, `evals/reviewer/grade.mjs`, `test/reviewer-grade.test.mjs`
+Checks: C7, R4
+- Risk: C7 shows the rules are written down, not that a model follows them. Detect: S11 measures it. Fallback: report C7 as a text check only.
+
+### S5: `jig:review` skill and build wiring [todo]
+Goal: `skills/review/SKILL.md` runs the router, the deterministic gate (and asks before running someone else's PR), the two phases, validation, partners by trigger with "Not checked" for any that aren't installed, the record, and a short report with the `Reviewed:` trailer. Without checks.json the gate is D1's one-command verify plus D7's runner. The report shows at most five ranked findings, folds the rest, and ends with one line on what these checks would miss. humanizing-writing runs only on prose an agent wrote in this change: people-facing docs with `voices/ashwin-sathian.md`, and skills, agents and references with no voice pass. It has a light path for `trivial`. Build step 4 calls it, and build/SKILL.md carries the `Blocked:` rule and the evidence-only reply rule.
+Touch: `skills/review/SKILL.md (new)`, `skills/build/SKILL.md`, `test/listing.test.mjs (new)`
+Checks: C8, C12, R5
+
+### S6: `Blocked:` exit and the `commit` gate [todo]
+Goal: a `Blocked: <reason>` Log line after the last evidence lets the Stop hook and the rounds logic pass, with a `systemMessage` telling the owner. The observed `commit` gate in pre-bash logs a `git commit` whose tree has no current evidence or review record and whose message lacks `Verified: none (`. After two would-be blocks in one session, the next commit passes. The `JIG_GATES` naming and the switches ask still hold. `evals/hook-timing.mjs` also times pre-bash on a commit and exits 1 when either p50 reaches 1,000 ms.
+Touch: `cli/lib/hooks.mjs`, `test/commit-gate.test.mjs (new)`, `test/blocked.test.mjs (new)`, `evals/hook-timing.mjs`
+Checks: C9, C10, C11, R6
+
+### S7: Dogfood and release 2.4.0 [todo]
+Goal: jig:review runs on this branch (with the plan), on a chattermeter clone (plan-free) and on the seeded cases. A Log line starting "review dogfood 2.4.0" gives the counts §7 asks for. README gains a Review section, the plan → build → verify → review loop, built-in `/code-review`, `/security-review` and `/simplify` in "How it compares", and review's limits, and nothing else changes. Versions are bumped and the PR is open with CI green.
+Touch: `README.md`, `CHANGELOG.md`, `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `test/release.test.mjs`
+Checks: C13, C14, R7
+
+### S8: Red team [todo]
+Goal: `agents/jig-redteam.md` (writes only tests and repro files, no network, no `.env*`) works in the head worktree the skill made and returns repros. The skill re-runs each repro once in a head worktree and a base worktree, and counts it only when it fails on head and, for a regression, passes on base. One attempt per review, and it asks first on someone else's PR.
+Touch: `agents/jig-redteam.md (new)`, `skills/review/SKILL.md (new)`, `test/listing.test.mjs (new)`
+Checks: C15, R8
+
+### S9: Tampering check [todo]
+Goal: the router reports `tamper` signals (Decisions) with their file:line. When `tests-or-checks` matches, the skill reads the transcript's tool calls if present, and scores actions and reasoning separately. It may raise suspicion, never clear a diff finding.
+Touch: `cli/lib/review.mjs (new)`, `test/tamper.test.mjs (new)`, `skills/review/SKILL.md (new)`
+Checks: C16, R9
+
+### S10: Learning from outcomes [todo]
+Goal: `jig review --propose` prints suppression proposals (a class marked wrong or didn't-matter twice) and REVIEW.md entry candidates from reverts, fix-forwards and misses the owner names (`--outcome <id> missed`), in the guard skill's format. The reviewer honours `Suppress:` entries from the base. It never writes REVIEW.md.
+Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review-learn.test.mjs (new)`, `skills/guard/SKILL.md`, `agents/jig-reviewer.md`
+Checks: C17, R10
+
+### S11: Review eval [todo]
+Goal: evals/reviewer gains diff cases (plan-free, true self-review, narrative injection, tampering, an invariant bug, two clean controls proven clean first, a held-out set) and the six arms. Graders allow "Unknown". `--dry` estimates one case. A paid run happens only with the owner's yes, and REPORT.md gets recall checked by hand, false positives, validator drops, injection and tamper catch rates, cost per review and pass^3. Rounds-to-pass is reported as "not measured", since no builder is in the loop.
+Touch: `evals/reviewer/run.mjs`, `evals/reviewer/grade.mjs`, `evals/reviewer/cases/`, `test/review-eval.test.mjs (new)`, `evals/results/REPORT.md`
+Checks: C18, C19, C22, R11
+
+### S12: Collision triggers, dogfood and release 2.5.0 [todo]
+Goal: the trigger eval gains the collision prompts with competing plugins enabled, and a SessionStart review nudge ships only if that eval shows it helps. Dogfood is logged as "review dogfood 2.5.0". Versions, CHANGELOG and README are updated, and the PR is open with CI green.
+Touch: `evals/triggers/cases.json`, `evals/triggers/run.mjs`, `cli/lib/hooks.mjs`, `README.md`, `CHANGELOG.md`, `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `test/release.test.mjs`
+Checks: C20, C21, C23, C24, R12
+
+## Log
+- 2026-11-25: Plan started at e126cf2.
+- 2026-11-25: Starting state differs from the request. v2.1.0 and v2.2.0 are released, npm `latest` is 2.2.0, verification-loops is `shipped`, and PR #6 (2.3.0) is open, so the milestones move to 2.4.0 and 2.5.0. Branch `review-loop` is cut from PR #6's head. 174 tests pass.
+- 2026-11-25: Spike, agent model: frontmatter `model` takes opus, sonnet, haiku, fable, a full ID or inherit (sub-agents docs). Plugin agents ignore hooks, mcpServers and permissionMode.
+- 2026-11-25: Spike, worktree: `isolation: worktree` is an agent frontmatter field. The worktree branches from the default branch, not HEAD, and is kept when it has changes. No documented way for a skill to ask for it per call.
+- 2026-11-25: Spike, transcripts: `session_id` and `transcript_path` are in the common hook input table. The file may lag the conversation, and its format and stability are undocumented. Privacy rule: read it locally, quote only what a finding needs, never copy a secret.
+- 2026-11-25: Spike, built-in `/code-review`: the docs mark it a bundled skill and document no output format. This session lists it as model-invocable, with findings of file, line, severity and failure scenario. S11 confirms by running it.
+- 2026-11-25: Spike, listing budget: descriptions are cut at 1,536 characters, the listing gets 1% of the context window, and the least-used skills lose their descriptions first. jig's current descriptions: plan 599, guard 453, build 387, jig-reviewer 315 (1,754 characters). The docs don't say whether agent descriptions count. This machine has more than 150 skills, and at least 7 high-collision review triggers (brief §1).
+- 2026-11-25: jig-reviewer plan review: fix first, 12 findings. Applied 11. C18 now tests a new file, C1 needs 10 `[opened]` sources and a tag on every line with a URL or a percentage, the red team gets a worktree at head (frontmatter isolation branches from the default branch), its limits are written down as prompt-only, the listing ceiling is 2,600 characters, the three departures moved to Questions, the seven missing requirements went into slice Goals and C8, the commit gate's tree and message forms are defined, hook-timing gates both p50s, C4 takes its base from the merge-base, and the finding id is defined. Not applied: dropping `(new)` from later slices' Touch, because `jig lint` raises J11 on any path that doesn't exist yet.
+- 2026-11-25: Owner answers: merged PR #6 with a merge commit (e21a3d6), so the branch now starts from `main` and Baseline moves to e21a3d6. Agents use `model: opus`. All three departures are accepted. The owner also asked to go beyond the basics. Plan approved by the owner.
