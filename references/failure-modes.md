@@ -1,0 +1,18 @@
+# How AI-written code fails, and the plan field that catches it
+
+Use this list when choosing checks for a slice. Pick only the rows that apply, and don't add a check for a failure the slice can't have. Figures were checked against their sources on 2026-11-25; see `docs/research/2026-11-adversarial-review.md`.
+
+| Failure | What it looks like | What to put in the plan |
+|---|---|---|
+| Tests that mirror the code | A green suite that asserts what the code does, not what it should do | Write acceptance checks from the spec **before** the code and list their files under `protects`. At the full tier, add a `mutation` check on core logic (Stryker for JS/TS, mutmut for Python, cargo-mutants for Rust) |
+| Test tampering | The agent edits or deletes a test to make it pass. Prompting barely stops this (METR 2025; ImpossibleBench) | `protects` in checks.json; the edit hook asks first. The build skill stops and reports when a test conflicts with the spec |
+| Swallowed errors | Empty or broad `catch`, fallbacks that hide failure. GitClear 2026: error-masking constructs up 47% | Name the error paths in the slice Goal. A lint rule against empty catch (doctor reports a missing one). The diff reviewer reads every catch block |
+| Duplication over reuse | A new helper where one already exists. GitClear 2026: duplicated blocks up 81% | Survey first. Decisions name what is reused. The reviewer greps for near-duplicates of each new function |
+| Invented packages and APIs | Imports of packages or methods that don't exist. 43% of hallucinated package names recur in every re-run (Spracklen et al., USENIX Security 2025), so attackers register them | A new dependency is a one-way door. Name it, its registry URL, age and maintainer in Decisions. The Bash hook asks on installs. Type-check and run the code |
+| Plausible wrong logic | Reads correctly but mishandles a domain rule. CodeRabbit 2025: logic issues 75% more common in AI PRs | Worked examples from the spec as acceptance checks. A `property` check (fast-check, Hypothesis, proptest) where the rule has an invariant |
+| Insecure defaults | XSS, weak password handling, missing authorization on a new route | Read `security.md` when a slice touches auth, input, secrets or dependencies. Add a `security` check (a test that the route rejects an unauthenticated call). Flag auth paths for a human to read |
+| Performance blind spots | Queries in loops, excessive I/O (CodeRabbit: about 8x more common in AI PRs), quadratic scans | Agents don't measure unless a check makes them. Add a `perf` check with a threshold when a slice touches a hot path or a list that grows |
+| Scope creep | Extra abstractions, edits to unrelated files | `Touch:` per slice. Each slice stays reviewable in one sitting |
+| False completion claims | "Tests pass" without running them. Replit's agent told its user rollback was impossible; it wasn't | Completion is the `jig verify --record` line in the Log, not a sentence. The Stop hook asks for evidence when files changed after the last verify |
+| Context rot | Quality drops late in long sessions | One slice per session. The plan's `Now:` line and Log are the memory, and subagents do investigation |
+| Destructive action in the wrong environment | Replit deleted a production database during a freeze it had been told about | Production and data changes are one-way doors. A freeze is enforced by permissions and credentials; the plan never claims a prompt enforces it |

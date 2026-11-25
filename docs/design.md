@@ -111,3 +111,14 @@ These are fixture repos with seeded traps. Each trap tests one claim from the re
 
 Graders run commands: lint, the fixture's hidden checks, `git diff --stat` limits, and hook logs. Prose criteria are allowed only where no command can decide, and the report labels them as such.
 
+
+## Context and cost
+
+jig adds to every session it runs in, so it keeps that addition small and avoids invalidating Claude Code's prompt cache. Evidence: [docs/research/2026-11-context-cost-review.md](research/2026-11-context-cost-review.md).
+
+- **No `effort` or `model` in any skill frontmatter.** Changing effort invalidates the messages cache, and changing model invalidates all of it.
+- **Hooks append, are short, and don't repeat.** The out-of-scope warning fires once per file per session (state in the jig state dir). SessionStart prints at most about 10 lines.
+- **CLI output is bounded.** One line per check, plus the deciding line on failure. No log dumps.
+- **One slice per session.** The plan file is the memory, so a fresh session resumes cheaply instead of compacting a long one.
+- **The reviewer gets paths, not content,** and runs only at the full and program tiers.
+- **Evals report cost per completed task** for each arm (total cost, cache-read and cache-write tokens, turns), from `claude -p --output-format json`.
