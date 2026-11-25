@@ -104,12 +104,15 @@ export function appendLog(planPath, line) {
   writeFileSync(planPath, lines.join('\n').replace(/\n*$/, '\n'));
 }
 
-// Every readable evidence record, oldest first. A corrupt line is skipped.
-export function evidence(root) {
-  const p = join(stateDir(root), 'evidence.jsonl');
+// Every readable record in a .git/jig/*.jsonl file, oldest first. A corrupt
+// line is skipped.
+export function readJsonl(root, name) {
+  const p = join(stateDir(root), name);
   if (!existsSync(p)) return [];
   return readFileSync(p, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
 }
+
+export const evidence = (root) => readJsonl(root, 'evidence.jsonl');
 
 // The last readable record, parsed from the end: the Stop hook calls this on
 // every turn, and records grow with the number of checks.

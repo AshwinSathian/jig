@@ -21,6 +21,9 @@ Usage:
                                          Run checks from checks.json; --record appends the result to the Log
   jig doctor [--json] [--ack]            Report harness gaps in this repo (changes nothing in the repo);
                                          --ack records that you've read the repo's agent config
+  jig review [--base <ref> | --pr <n>] [--json]
+                                         The brief a review starts from: base, tree, triggers, REVIEW.md
+                                         entries from the base, and the last evidence and review records
   jig hook <session-start|pre-edit|pre-bash|stop>   Hook entry points (read JSON on stdin)
 
 Exit codes: 0 ok, 1 problems found or checks failed, 2 usage error.`;
@@ -125,6 +128,15 @@ async function main() {
     case 'doctor': {
       const { doctor } = await import('./lib/doctor.mjs');
       return doctor(root, { json: flags.json === 'true', ack: flags.ack === 'true' });
+    }
+
+    case 'review': {
+      const { reviewBrief, formatBrief } = await import('./lib/review.mjs');
+      for (const k of ['base', 'pr']) if (flags[k] === true || String(flags[k] ?? '').startsWith('-')) { console.error(`jig review: --${k} needs a ${k === 'pr' ? 'PR number' : 'ref'}`); return 2; }
+      const b = reviewBrief(root, { base: flags.base ?? null, pr: flags.pr ?? null });
+      if (b.error) { console.error(`jig review: ${b.error}`); return 2; }
+      console.log(flags.json === 'true' ? JSON.stringify(b, null, 2) : formatBrief(b));
+      return 0;
     }
 
     case 'hook': {

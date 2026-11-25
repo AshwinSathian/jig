@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S2 doing (`jig review` router).
+Now: S3 doing (review records and the schema doc).
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -50,13 +50,13 @@ Touch: `docs/research/2026-11-review-landscape.md (new)`
 Checks: C1
 - Risk: a source won't open, and its claim slips in untagged. Detect: C1 fails on a bullet with a URL but no tag. Fallback: tag it UNVERIFIED or drop it.
 
-### S2: `jig review` router [doing]
+### S2: `jig review` router [done]
 Goal: `jig review` resolves the base in the Decisions' order, and prints a brief with base, head, tree fingerprint, diff stats, triggers with their matched files, REVIEW.md entries from the base whose `When:` matches, checks.json presence, and the last evidence and review records with a `current` flag. `--json` prints the same as JSON. It runs only git and gh.
 Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review.test.mjs (new)`, `test/review-triggers.test.mjs (new)`
 Checks: C2, C3, C4, R2
 - Risk: triggers misfire the way D7 did (eight false results). Detect: C3's negative cases, then the S7 dogfood counts false triggers. Fallback: narrow the pattern and add the case to C3.
 
-### S3: Review records and the schema doc [todo]
+### S3: Review records and the schema doc [doing]
 Goal: `jig review --record <findings.json>` validates the findings and appends a versioned, tree-tied record to `.git/jig/reviews.jsonl`. `--outcome <id> fixed|wrong|intentional|didnt-matter` appends an outcome. SessionStart keeps `transcript_path` in the session state. `docs/evidence-schema.md` documents all four state files.
 Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `cli/lib/hooks.mjs`, `test/review-records.test.mjs (new)`, `docs/evidence-schema.md (new)`
 Checks: C5, C6, R3
@@ -119,3 +119,6 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-25: Owner answers: merged PR #6 with a merge commit (e21a3d6), so the branch now starts from `main` and Baseline moves to e21a3d6. Agents use `model: opus`. All three departures are accepted. The owner also asked to go beyond the basics. Plan approved by the owner.
 - 2026-11-25 23:36: jig verify S1: C1 pass
 - 2026-11-25: S1 done. Three agents reopened all 36 sources in the brief. 33 confirmed. Martian's "offline results diverged" and SHADE-Arena's "accepting a clearly false justification" aren't on the pages, so both are now UNVERIFIED. Six claims were reworded to match their pages: AutoCommenter's 6% to 1.3% is about comments on unchanged lines, thresholds are per rule URL, RovoDev's judge had "minimal impact", Smit doesn't make the equal-compute point (Wang does), the CVE paper is about re-introduction through PR metadata, and ImpossibleBench's monitor numbers are on Impossible-SWEbench. Kim et al. is cited without the ICML venue. C1 failed on a mutation (an untagged "40%" line). No jig-reviewer pass: the diff is one research doc, and the reviewer can't open web sources, which the three agents did.
+- 2026-11-25 23:52: jig verify S2: C2 pass; C3 pass; C4 pass; R2 pass
+- 2026-11-25 23:57: jig verify S2: C2 pass; C3 pass; C4 pass; R2 pass
+- 2026-11-25: S2 done. `jig review` resolves the base (flags, then the doing slice's start from `Verified:` trailers, then the merge-base with the default branch, local or `origin/`, then HEAD), and prints a brief with tree, stats, triggers, REVIEW.md entries read from the base, the D1 and D7 gate, and evidence and review records with a `current` flag. Every skipped step is named in `fallback`, an empty diff against HEAD is an error, and in `--pr` mode the tree is null unless the PR head is checked out. Line-content triggers read source files only, not tests or docs. The first run on this branch flagged its own test fixtures as security, which led to that rule. The jig-reviewer diff review gave fix first with 14 findings, all applied, each with a test that failed first. They covered false triggers (`.exec(`, `Math.random() * width`, `requirements.txt` as prose, `token` in a lexer, test fixtures as prose), deleted-file parsing, PR base not in the clone, unreadable gh output, valueless `--base` and `--pr`, remote-only default branches, the PR tree, quoted paths, and one shared JSONL reader. No round 2, because each fix has its own failing-first test. eslint wasn't run here: `npx --yes eslint` was denied in this session, so CI runs it.
