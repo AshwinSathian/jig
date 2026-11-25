@@ -1,7 +1,7 @@
 # Verification loops
 
 Status: building · Tier: full · Baseline: 9bffbb5 · Updated: 2026-11-25
-Now: S3 three rounds in progress. S1 and S2 done.
+Now: S2 security follow-ups, then S4 flaky checks and Verified trailer. S1 to S3 done.
 
 ## Outcome
 jig closes the five gaps in [the verification review](../../research/2026-11-verification-review.md): a slice can't loosen its own checks without a person seeing it, evidence is tied to the working tree, failing checks get three rounds and then go to the owner, check commands can't retry or swallow failure, and every slice commit says how it was verified. 2.2.0 adds end-to-end check kinds, reviewer rounds, a diff-triggered checklist and a reviewer eval with clean controls.
@@ -55,7 +55,7 @@ Touch: `cli/lib/git.mjs`, `cli/lib/verify.mjs`, `cli/lib/hooks.mjs`, `test/finge
 Checks: C3, C4, R2
 - Risk: hashing every file is slow on a repo with large untracked files. Detect: `evals/hook-timing.mjs` exits 1 when p50 reaches 1000 ms (C4); S6 and S11 run it with `JIG_TIMING_REPO` set to the chattermeter clone. Fallback: skip files whose size and mtime match the last run, cached in `.git/jig`.
 
-### S3: Three rounds [doing]
+### S3: Three rounds [done]
 Goal: the Stop hook blocks once per new failing record, and at round 3 says to stop and report the three attempts; build step 4 says the same. First test reproduces gap 3.
 Touch: `cli/lib/hooks.mjs`, `skills/build/SKILL.md`, `test/rounds.test.mjs (new)`
 Checks: C5, C6, R3
@@ -115,3 +115,5 @@ Checks: C21, C22, C23, C25, R11
 - 2026-11-25: S2 done. Gap 2 reproduced first: 5 of 8 new fingerprint tests failed on ac794f4, including a session that changed `src/a.js` with no Edit hook and stopped unblocked. Evidence now records `head` and `tree`, and the Stop hook blocks when the tree moved since session start (or an Edit ran) and differs from the last evidence. A commit after verifying leaves the evidence current. Design change: a background security review and the diff reviewer both flagged that `git add` into a temp index runs `.git/config` clean filters outside the sandbox, and a scratch repo confirmed it, so the tree is hashed from `git ls-files` in Node instead. The diff review also found that excluding the whole plans directory hid checks.json edits (now only PLAN.md files are left out), and that sessions starting before a plan was active never got a start tree (now taken at the first PreToolUse call too). Hook timing (fresh node process computing the tree): jig 41 ms p50, chattermeter clone 133 ms p50 and 142 ms max, against a 1000 ms budget.
 - 2026-11-25 19:36: jig verify S1: C1 pass; C2 pass
 - 2026-11-25: S1 follow-up from a background security review of `ac794f4`. Four fail-open paths were each reproduced by a new test before the fix. A check id such as `constructor` resolved on the object prototype and threw inside the hook, so snapshots now use null-prototype objects and `Object.hasOwn`. An Edit the hook can't apply now asks. A path spelled in another case is matched by inode. An edit that moves an active plan out of approved or building (for example to draft) asks, since that would lift the freeze. Marking a plan shipped now asks once, which is the owner's call anyway.
+- 2026-11-25 19:38: jig verify S3: C5 pass; C6 pass; R3 pass
+- 2026-11-25: S3 done. Gap 3 reproduced first: 4 of 5 new rounds tests failed on 77d744d, including a second failing verify in one session that got no block. The Stop hook now counts consecutive failing records per check, for this plan only, back to that check's last pass. Each new failing record blocks once. At round 3 the reason says to stop, report each attempt and the current error to the owner, and not try again. Evidence records keep the failure reason (200 chars) so the hook can quote it. Build step 4 states the same rule.

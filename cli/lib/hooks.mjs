@@ -8,7 +8,7 @@ import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
-import { lastEvidence, workTree } from './verify.mjs';
+import { evidence, workTree } from './verify.mjs';
 import { parsePlan } from './plan.mjs';
 
 const off = (name) => {
@@ -239,7 +239,10 @@ export function stop(input) {
   // An Edit-hook call counts as a change too, as it did before tree ids.
   const changed = Boolean(st.data.editedAt) || Boolean(tree && st.data.startTree && tree !== st.data.startTree);
   if (!changed) return null;
-  const ev = lastEvidence(root);
+  // This plan's records only: another plan's failures aren't this slice's rounds.
+  const rels = new Set(withChecks.map((x) => relative(root, x.path)));
+  const mine = evidence(root).filter((r) => rels.has(r.plan));
+  const ev = mine[mine.length - 1] ?? null;
   const run = `Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.`;
   // Evidence that ran no checks proves nothing.
   if (!ev || !(ev.results ?? []).length) return { decision: 'block', reason: `jig: files changed and no \`jig verify\` has run a check. ${run}` };
@@ -247,13 +250,35 @@ export function stop(input) {
   if (tree ? ev.tree !== tree : ev.t < st.data.editedAt) {
     return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. ${run}` };
   }
-  const failed = (ev.results ?? []).filter((r) => !r.pass).map((r) => r.id);
-  if (failed.length && !st.data.reportedFailure) {
-    st.data.reportedFailure = ev.t;
-    st.save();
-    return { decision: 'block', reason: `jig: the last \`jig verify\` had failing checks (${failed.join(', ')}). Fix them, or tell the user plainly they are failing; don't describe the slice as done.` };
+  const failing = (ev.results ?? []).filter((r) => !r.pass);
+  // Each failing record blocks once; the next block needs a new verify.
+  if (!failing.length || st.data.blockedRecord === ev.t) return null;
+  st.data.blockedRecord = ev.t;
+  st.save();
+  const rounds = failing.map((f) => ({ id: f.id, why: f.why, n: failedRounds(mine.filter((r) => r.plan === ev.plan), f.id) }));
+  const out = rounds.filter((r) => r.n >= ROUNDS);
+  const still = rounds.filter((r) => r.n < ROUNDS);
+  const list = still.map((r) => `${r.id} (round ${r.n} of ${ROUNDS})`).join(', ');
+  if (out.length) {
+    return { decision: 'block', reason: `jig: ${out.map((r) => `${r.id} has failed ${r.n} verify rounds in a row`).join('; ')}. Stop, and don't try again. Report to the owner what you changed in each round and the current error (${out.map((r) => `${r.id}: ${r.why || 'see jig verify'}`).join('; ')}), and let them decide.${list ? ` Also failing: ${list}.` : ''}` };
   }
-  return null;
+  return { decision: 'block', reason: `jig: the last \`jig verify\` had failing checks (${still.map((r) => r.id).join(', ')}). Rounds so far: ${list}. Fix the code, not the check, and verify again, or tell the user plainly they are failing; don't describe the slice as done.` };
+}
+
+// After three failed rounds on one check, a person decides (the Claude Code
+// team's rule; /ship stops after three pushes per issue).
+const ROUNDS = 3;
+
+// Consecutive failing records for one check, counted back to its last pass.
+export function failedRounds(records, id) {
+  let n = 0;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = (records[i].results ?? []).find((x) => x.id === id);
+    if (!r) continue;
+    if (r.pass) break;
+    n++;
+  }
+  return n;
 }
 
 const HANDLERS = { 'session-start': sessionStart, 'pre-edit': preEdit, 'pre-bash': preBash, stop };

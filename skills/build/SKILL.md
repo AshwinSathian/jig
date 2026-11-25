@@ -40,7 +40,7 @@ List each acceptance test file under `protects` in `checks.json`. From then on, 
 Run `jig verify --record` for the slice. It runs the slice's checks, prints one line per check, and appends the result to the Log. That Log line is the evidence the slice is done. A sentence saying the tests pass is not evidence.
 
 - **All green:** go to step 5.
-- **A check fails:** fix the code, not the check, and verify again.
+- **A check fails:** fix the code, not the check, and verify again. You get three rounds on the same check. If it still fails on the third `jig verify`, stop: don't try a fourth fix. Report to the owner what you changed in each round and the current error, and let them decide. The Stop hook counts the rounds from `evidence.jsonl` and says when you've reached three.
 - **A check can't run here** (missing service, credentials, hardware): say so in the Log and to the owner. Don't count it as passing.
 
 At the full tier, hand the slice to the `jig-reviewer` agent in diff mode, with the plan path and slice ID. Fix the findings, or log why one doesn't apply.

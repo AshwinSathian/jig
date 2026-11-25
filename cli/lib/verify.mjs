@@ -43,7 +43,7 @@ export function verifyPlan(root, planPath, opts = {}) {
   const logged = Boolean(opts.record && results.length);
   // After the checks: output they write must not make this record stale.
   const tree = workTree(root);
-  const record = { t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, head: headSha(root, { short: false }), tree, checks, results: results.map(({ id, pass, exit, ms }) => ({ id, pass, exit, ms })) };
+  const record = { t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, head: headSha(root, { short: false }), tree, checks, results: results.map(({ id, pass, exit, ms, why }) => ({ id, pass, exit, ms, ...(pass ? {} : { why: why.slice(0, 200) }) })) };
   appendFileSync(join(stateDir(root), 'evidence.jsonl'), JSON.stringify(record) + '\n');
   if (logged) appendLog(planPath, logLine(results, opts.slice, changes));
   return { results, ...changes, tree };
