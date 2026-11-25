@@ -4,7 +4,7 @@
 
 ## Where plans live
 
-`docs/plans/<slug>/PLAN.md`, with `checks.json` beside it at the full and program tiers. If the repo already keeps plans elsewhere (for example `docs/PLAN.md` or `PLAN-*.md` at the root), follow the repo and pass the path to `jig lint`. Start a plan with `jig new <slug> --tier brief|full|program --title "..."`, which fills in the baseline commit and date.
+`<plans dir>/<slug>/PLAN.md`, with `checks.json` beside it at the full and program tiers. The plans directory is `plansDir` from `.jig.json` if set, otherwise an existing `docs/plans/` or `docs/plan/`, otherwise `docs/plans/`. `jig status` prints which one it uses. Start a plan with `jig new <slug> --tier brief|full|program --title "..."`, which picks that directory and fills in the baseline commit and date.
 
 ## Layout
 
@@ -143,4 +143,4 @@ The Log is append-only and dated: `- 2026-11-25: ...` or `- 2026-11-25 14:02: ..
 | `fast` | True for checks that finish within 120 s. The build skill runs these before every stop |
 | `protects` | Paths the agent may not edit without a logged decision. The edit hook asks first |
 
-Write acceptance checks from the spec, before the code they check. They state what the code should do, not what it already does. Lint errors here are [J17].
+Write acceptance checks from the spec, before the code they check. They state what the code should do, not what it already does. Point each one at its own tests (a file path, `--grep`, `--testPathPattern`, `-t`): a whole-suite command passes before the behaviour exists, and `jig lint` warns about it [J21]. Lint errors here are [J17].

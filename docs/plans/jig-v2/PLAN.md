@@ -1,7 +1,7 @@
 # jig v2: a planning and build harness for coding agents
 
 Status: building · Tier: full · Baseline: ddb3fdb · Updated: 2026-11-25
-Now: S5 waiting on the owner: publish decisions and a full 3-run eval. S0 to S4 done.
+Now: releasing 2.0.0 to npm. S0 to S4 and S6 done; S5 waits on a full 3-run eval.
 
 ## Outcome
 jig replaces the `plan-engineering` skill. It is a Claude Code plugin that plans engineering work at any size, carries the plan through to verified code, and turns repeated failures into deterministic guardrails. Design detail is in [docs/design.md](../../design.md), and the evidence is in [the adversarial review](../../research/2026-11-adversarial-review.md).
@@ -70,6 +70,11 @@ Touch: `evals/`, `README.md`, `CHANGELOG.md`, `.claude-plugin/marketplace.json`,
 Checks: C4, C5
 - Risk: model judges inflate results. Detect: judged numbers disagree with command graders. Fallback: report command-graded numbers only, and label judged ones.
 
+### S6: Dogfood fixes from a real monorepo [done]
+Goal: jig works on chattermeter (Nx, 29k files, its own plans in `docs/plan/`) without false findings or invisible plans.
+Touch: `cli/`, `test/dogfood.test.mjs (new)`, `references/plan-format.md`, `README.md`, `CHANGELOG.md`
+Checks: C1
+
 ## Log
 - 2026-11-25: Imported v1.0 (`16c5eb7`), wrote the adversarial review (`ddb3fdb`), and renamed the repo folder to `jig`. Owner decisions: solo-first with team support, automatic triggering, gates by context, rename plus plugin packaging.
 - 2026-11-25: Owner approved the plan ("Plan looks good"). Converted it to the jig format; design detail moved to `docs/design.md`.
@@ -83,3 +88,5 @@ Checks: C4, C5
 - 2026-11-25: S5 evals run as a smoke test (one run per cell, about $5 in total). Tasks: jig 8/8, none 6/8, superpowers 6/8, headless plan mode 4/8; jig's gains were the underspecified and schema-change tasks, at about +$0.02 and +3 turns per task. The soft nudge fired on only 1 of 8 task prompts, so the nudge was made firm; triggers then went 10/10 in both arms and task prompts 9/9. Reviewer: 5/5 seeded defects in both runs against 4 and 5 for a plain fresh review, inside the noise. Self-review against fresh review is not yet tested. A regex grader under-credited the plain review, and a manual check caught it. README, CHANGELOG, marketplace.json and CI added.
 - 2026-11-25 16:08: jig verify: C1 pass; C2 pass; C3 pass; C4 pass; C6 pass; C5 pass
 - 2026-11-25: Repo brought up to the standard of the top comparable repos (Spec Kit, superpowers, OpenSpec, BMAD, aider, AgentOps), from a benchmark of their READMEs and community files. README rewritten (201 lines): how it works, hooks with what they never do, real CLI output, an evidence section with baselines, limits, comparison, troubleshooting. Added CONTRIBUTING, SECURITY, Code of Conduct, issue and PR templates, CODEOWNERS, dependabot, SHA-pinned CI with gitleaks, Scorecard, and an npm trusted-publishing workflow. Added release tests for version agreement and skill frontmatter. People-facing docs passed through humanizing-writing in the owner's voice; skills, agents and references left unchanged at the owner's request.
+- 2026-11-25: Live install verified from GitHub in an isolated config dir (marketplace add, install, `plugin details`: 3 skills, 1 agent, 3 hook events, about 429 always-on tokens). A headless run on the installed copy found `jig` on PATH, the pre-bash hook blocked `npm install left-padd`, and the SessionStart nudge arrived verbatim.
+- 2026-11-25: S6 dogfood on chattermeter (scratch clones). Doctor was wrong or misleading on 4 of 6 checks (npm instead of pnpm, a no-empty rule set by an Nx preset, secrets not scanned deep enough, CI assumed to run while Actions is suspended). The plan skill wrote ACCT-06 to the repo's `docs/plan/`, but jig's status and hooks couldn't see it, and ACC-06 started a second `docs/plans/`. Acceptance checks ran whole suites, and no check was fast, so the Stop hook accepted an empty verify. All fixed, with regression tests in `test/dogfood.test.mjs` (67 tests pass). The plans were good: 81 and 52 lines, both lint-clean. The reviewer caught a missed one-way door in ACCT-06. The no-jig baseline plan was 133 lines with 8 questions, and it had a priority question and a risks table that jig's lacked.

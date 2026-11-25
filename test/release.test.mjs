@@ -34,3 +34,13 @@ test('skills stay short and carry valid frontmatter', () => {
     assert.ok(t.split('\n').length <= 200, `${s} SKILL.md is ${t.split('\n').length} lines`);
   }
 });
+
+test('every reference file is used by a skill or agent, and no stray root SKILL.md ships', async () => {
+  const { readdirSync, existsSync } = await import('node:fs');
+  const users = ['skills/plan/SKILL.md', 'skills/build/SKILL.md', 'skills/guard/SKILL.md', 'agents/jig-reviewer.md', 'references/plan-format.md', 'references/fundamentals.md']
+    .map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
+  for (const f of readdirSync(join(ROOT, 'references'))) {
+    assert.ok(users.includes(f), `references/${f} is not referenced by any skill or agent; delete it or link it`);
+  }
+  assert.ok(!existsSync(join(ROOT, 'SKILL.md')), 'a root SKILL.md would ship alongside skills/');
+});

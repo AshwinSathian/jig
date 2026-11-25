@@ -1,22 +1,40 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, normalize, isAbsolute } from 'node:path';
 import { parsePlan, touchPaths } from './plan.mjs';
 
 const ACTIVE = ['approved', 'building'];
 
-// Find PLAN.md files under docs/plans/ (and docs/PLAN.md, the convention in
-// older repos). Bounded: two levels, no node_modules.
+// Where this repo keeps plans. `.jig.json` {"plansDir": "..."} wins; else an
+// existing docs/plans/ or docs/plan/ (the repo's convention); else docs/plans/.
+export function plansDir(root) {
+  try {
+    const cfg = JSON.parse(readFileSync(join(root, '.jig.json'), 'utf8'));
+    if (typeof cfg.plansDir === 'string' && cfg.plansDir.trim()) {
+      // .jig.json comes from the repo, so it may not point outside it or at a
+      // source tree: the edit hook exempts this directory from scope checks.
+      const d = normalize(cfg.plansDir.trim()).replace(/\/+$/, '');
+      if (!isAbsolute(d) && !d.split('/').includes('..') && d !== '.' && /plan/i.test(d.split('/').pop())) return d;
+      process.stderr.write(`jig: ignoring .jig.json plansDir "${cfg.plansDir}" (must be a relative folder inside the repo whose name contains "plan")\n`);
+    }
+  } catch (e) {
+    if (e.code !== 'ENOENT') process.stderr.write(`jig: ignoring unreadable .jig.json (${e.message})\n`);
+  }
+  for (const d of ['docs/plans', 'docs/plan']) if (existsSync(join(root, d)) && statSync(join(root, d)).isDirectory()) return d;
+  return 'docs/plans';
+}
+
+// PLAN.md files one level under the plans directory, plus docs/PLAN.md (the
+// convention in older repos). Bounded: no recursive walk.
 export function findPlans(root) {
   const found = [];
-  const base = join(root, 'docs', 'plans');
-  if (existsSync(base)) {
-    for (const d of readdirSync(base)) {
-      const p = join(base, d, 'PLAN.md');
-      if (existsSync(p) && statSync(p).isFile()) found.push(p);
-    }
+  const seen = new Set();
+  const add = (p) => { if (!seen.has(p) && existsSync(p) && statSync(p).isFile()) { seen.add(p); found.push(p); } };
+  for (const d of new Set([plansDir(root), 'docs/plans', 'docs/plan'])) {
+    const base = join(root, d);
+    if (!existsSync(base) || !statSync(base).isDirectory()) continue;
+    for (const n of readdirSync(base)) add(join(base, n, 'PLAN.md'));
   }
-  const legacy = join(root, 'docs', 'PLAN.md');
-  if (existsSync(legacy)) found.push(legacy);
+  add(join(root, 'docs', 'PLAN.md'));
   return found;
 }
 

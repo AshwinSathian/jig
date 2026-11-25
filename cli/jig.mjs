@@ -4,22 +4,23 @@ import { relative, join, isAbsolute } from 'node:path';
 import { statSync, readdirSync, existsSync } from 'node:fs';
 import { lintFile } from './lib/lint.mjs';
 import { newPlan } from './lib/scaffold.mjs';
-import { statusSummary, findPlans, activePlans, doingSlice } from './lib/status.mjs';
+import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './lib/status.mjs';
 import { verifyPlan } from './lib/verify.mjs';
 import { repoRoot } from './lib/git.mjs';
 
-const VERSION = '2.0.0-dev';
+const VERSION = '2.0.0';
 const HELP = `jig ${VERSION}
 
 Usage:
-  jig new <slug> [--tier brief|full|program] [--title "..."] [--dir docs/plans]
+  jig new <slug> [--tier brief|full|program] [--title "..."] [--dir <plans dir>]
   jig lint [PLAN.md|dir ...] [--json] [--no-paths]
                                          Check plans against the format (default: every plan in docs/plans);
                                          --no-paths skips Touch path checks for plans linted outside their repo
   jig status                             Active plans, their Now line and the current slice
   jig verify [--plan P] [--slice S1] [--fast] [--check C1,C2] [--record]
                                          Run checks from checks.json; --record appends the result to the Log
-  jig doctor [--json]                    Report harness gaps in this repo (never changes anything)
+  jig doctor [--json] [--ack]            Report harness gaps in this repo (changes nothing in the repo);
+                                         --ack records that you've read the repo's agent config
   jig hook <session-start|pre-edit|pre-bash|stop>   Hook entry points (read JSON on stdin)
 
 Exit codes: 0 ok, 1 problems found or checks failed, 2 usage error.`;
@@ -46,7 +47,7 @@ function expand(p, depth = 0) {
   return readdirSync(p).flatMap((n) => (n === 'node_modules' || n.startsWith('.') ? [] : n === 'PLAN.md' ? [join(p, n)] : statSync(join(p, n)).isDirectory() ? expand(join(p, n), depth + 1) : []));
 }
 
-const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths']);
+const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths', 'ack']);
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -69,7 +70,7 @@ async function main() {
     case 'new': {
       if (!pos[0]) { console.error('jig new: give a slug, e.g. jig new csv-export'); return 2; }
       try {
-        const files = newPlan(root, pos[0], { tier: flags.tier ?? 'brief', title: flags.title, dir: flags.dir ?? 'docs/plans' });
+        const files = newPlan(root, pos[0], { tier: flags.tier ?? 'brief', title: flags.title, dir: flags.dir ?? plansDir(root) });
         for (const f of files) console.log(`wrote ${relative(cwd, f)}`);
         return 0;
       } catch (e) { console.error(`jig new: ${e.message}`); return 2; }
@@ -77,7 +78,7 @@ async function main() {
 
     case 'lint': {
       const targets = pos.length ? pos.flatMap((p) => expand(isAbsolute(p) ? p : join(cwd, p))) : findPlans(root);
-      if (!targets.length) { console.error('jig lint: no plans found under docs/plans/'); return 2; }
+      if (!targets.length) { console.error(`jig lint: no plans found under ${plansDir(root)}/`); return 2; }
       const reports = targets.map((t) => lintFile(t, { cwd, paths: flags['no-paths'] !== 'true' }));
       if (flags.json === 'true' || flags.json === true) { console.log(JSON.stringify(reports, null, 2)); }
       else {
@@ -92,7 +93,8 @@ async function main() {
 
     case 'status': {
       const lines = statusSummary(root, { max: 10 });
-      console.log(lines.length ? lines.join('\n') : 'No approved or in-progress plans under docs/plans/.');
+      console.log(`Plans live in ${plansDir(root)}/ (set "plansDir" in .jig.json to change).`);
+      console.log(lines.length ? lines.join('\n') : 'No approved or in-progress plans.');
       return 0;
     }
 
@@ -119,7 +121,7 @@ async function main() {
 
     case 'doctor': {
       const { doctor } = await import('./lib/doctor.mjs');
-      return doctor(root, { json: flags.json === 'true' });
+      return doctor(root, { json: flags.json === 'true', ack: flags.ack === 'true' });
     }
 
     case 'hook': {

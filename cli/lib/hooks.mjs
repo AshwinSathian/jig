@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
-import { activePlans, doingSlice, sliceTouch, statusSummary } from './status.mjs';
+import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks } from './checks.mjs';
 import { lastEvidence } from './verify.mjs';
 
@@ -97,7 +97,7 @@ export function preEdit(input) {
       }
     }
   }
-  if (rel.startsWith('docs/plans/')) return null;
+  if (rel.startsWith(`${plansDir(root)}/`) || rel.startsWith('docs/plans/')) return null;
   const doing = plans.map(({ path, plan }) => ({ path, slice: doingSlice(plan) })).find((x) => x.slice);
   if (!doing) return null;
   const touch = sliceTouch(doing.slice);
@@ -167,10 +167,14 @@ export function stop(input) {
   const plans = activePlans(root).filter(({ plan }) => doingSlice(plan));
   if (!plans.length) return null;
   // Only when a checks.json exists; brief plans state checks as commands.
-  if (!plans.some(({ path }) => loadChecks(path).exists)) return null;
+  const withChecks = plans.map(({ path, plan }) => ({ path, slice: doingSlice(plan), checks: loadChecks(path) })).filter((x) => x.checks.exists && Array.isArray(x.checks.data?.checks));
+  if (!withChecks.length) return null;
+  const sliceChecks = withChecks.flatMap((x) => x.checks.data.checks.filter((c) => c.slice === x.slice.id));
+  const cmd = sliceChecks.some((c) => c.fast === true) ? 'jig verify --fast --record' : 'jig verify --record';
   const ev = lastEvidence(root);
-  if (!ev || ev.t < st.data.editedAt) {
-    return { decision: 'block', reason: 'jig: files changed since the last `jig verify`. Run `jig verify --fast --record` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.' };
+  // Evidence that ran no checks proves nothing.
+  if (!ev || ev.t < st.data.editedAt || !(ev.results ?? []).length) {
+    return { decision: 'block', reason: `jig: files changed since the last \`jig verify\` that ran a check. Run \`${cmd}\` for the slice in progress and report its result before finishing. If a check cannot run here, say which one and why.` };
   }
   const failed = (ev.results ?? []).filter((r) => !r.pass).map((r) => r.id);
   if (failed.length && !st.data.reportedFailure) {

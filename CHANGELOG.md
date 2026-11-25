@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 (unreleased)
+## 2.0.0 (2026-11-25)
 
 We rebuilt the single-file `plan-engineering` skill (1.0, July 2026) as the jig plugin. Our reasons are in `docs/research/2026-11-adversarial-review.md`.
 
@@ -11,3 +11,8 @@ We rebuilt the single-file `plan-engineering` skill (1.0, July 2026) as the jig 
 - Hooks: a SessionStart nudge and plan status, a protected-test and scope guard on edits, an install guard on Bash, and a Stop hook that asks for verify evidence.
 - CLI: `jig new`, `lint` (rules J01 to J20), `status`, `verify --record`, `doctor` (D1 to D6).
 - Evals: task, trigger and reviewer evals with isolated arms. See `evals/results/REPORT.md`.
+- From running jig on a large Nx monorepo before release:
+  - Plans follow the repo's own folder (`docs/plan/` as well as `docs/plans/`, or `plansDir` in `.jig.json`). Before, plans in `docs/plan/` were invisible to status, hooks and verify.
+  - The Stop hook no longer counts a `jig verify` that ran no checks as evidence, and asks for plain `jig verify --record` when a slice has no fast checks.
+  - A new lint warning (J21) flags acceptance checks that run a whole suite with no filter, since those pass before the feature exists.
+  - Doctor names the repo's package manager and its `verify` or `check` script. It says when lint presets hide rules, finds secret files up to four levels deep, matches deny rules as globs, and reports `.githooks/` with no `core.hooksPath`. It doesn't claim CI runs, and `jig doctor --ack` quiets the agent-config review until the files change.

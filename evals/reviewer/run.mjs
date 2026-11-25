@@ -3,6 +3,7 @@
 // The plan passes `jig lint`; its five defects need judgment, not format checks.
 // Usage: node evals/reviewer/run.mjs [--runs 2]
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -10,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { runClaude, arms, usageOf, pool } from '../lib/claude.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Throwaway fixture repos are removed on exit; pass --keep to inspect them.
+const MADE = [];
+process.on('exit', () => { if (!process.argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
 const JIG = join(HERE, '..', '..');
 const runs = Number((process.argv.includes('--runs') ? process.argv[process.argv.indexOf('--runs') + 1] : '2'));
 
@@ -77,6 +81,7 @@ const DEFECTS = [
 
 function scaffold() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-rev-')));
+  MADE.push(dir);
   for (const [p, b] of Object.entries(FILES)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), b); }
   const g = (...a) => execFileSync('git', ['-c', 'user.email=e@e', '-c', 'user.name=e', ...a], { cwd: dir, stdio: 'ignore' });
   g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'fx');

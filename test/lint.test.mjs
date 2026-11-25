@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -77,6 +77,7 @@ test('durations in requirements are not estimates', () => {
 
 test('log is append-only against the committed version', () => {
   const dir = mkdtempSync(join(tmpdir(), 'jig-lint-'));
+  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 't');
   mkdirSync(join(dir, 'docs/plans/x'), { recursive: true });

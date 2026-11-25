@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,8 +8,12 @@ import { newPlan } from '../cli/lib/scaffold.mjs';
 import { verifyPlan, lastEvidence } from '../cli/lib/verify.mjs';
 import { lintFile } from '../cli/lib/lint.mjs';
 
+const made = [];
+process.on('exit', () => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
+
 export function tempRepo() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-')));
+  made.push(dir);
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 't');
   writeFileSync(join(dir, 'README.md'), 'x\n');
