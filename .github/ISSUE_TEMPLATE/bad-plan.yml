@@ -1,0 +1,27 @@
+name: Plan got it wrong
+description: Wrong tier, a missed one-way door, a needless question, padding, or a check that can't fail
+labels: [plan-quality]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What you asked for
+      description: The request, as you typed it.
+    validations: { required: true }
+  - type: textarea
+    id: plan
+    attributes:
+      label: The plan, or the part that's wrong
+      description: Paste it. Remove anything private.
+      render: markdown
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: What it should have done
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes:
+      label: Model, Claude Code and jig versions
+      description: For example "Claude Opus 5.5, Claude Code 2.1.330, jig 2.0.0".

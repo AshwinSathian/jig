@@ -1,12 +1,12 @@
 # jig eval report
 
-Run 2026-11-25 on Claude Code 2.1.330 with the account's default model (Claude Opus 5.5). Every arm ran with `--setting-sources project,local --strict-mcp-config`, so no user skills, plugins or MCP servers loaded except the arm's own. Raw results are the JSON files next to this report.
+We ran everything on 2026-11-25 on Claude Code 2.1.330 with the account's default model (Claude Opus 5.5). Every arm ran with `--setting-sources project,local --strict-mcp-config`, so no user skills, plugins or MCP servers loaded except the arm's own. Raw results are the JSON files next to this report.
 
 **Read this as a smoke test, not a benchmark.** Most cells are one run, the fixture repos are small, and every task was written by the same author as jig. A one-task difference between arms is inside the noise.
 
 ## Task evals
 
-There are nine fixture repos, each with one seeded trap. Commands grade them (hidden tests, `git diff`, `jig lint`), except four graders that match the final message against a regex. Those four are marked † below. Command graders: `evals/run.mjs`; tasks: `evals/tasks/tasks.mjs`.
+There are nine fixture repos, each with one seeded trap. Commands grade them (hidden tests, `git diff`, `jig lint`), except four graders that match the final message against a regex — those four are marked † below. Command graders: `evals/run.mjs`; tasks: `evals/tasks/tasks.mjs`.
 
 | Task | Trap | none | jig | plan mode | superpowers |
 |---|---|---|---|---|---|
@@ -27,10 +27,10 @@ There are nine fixture repos, each with one seeded trap. Commands grade them (hi
 
 **What this shows:**
 
-- **The baseline is strong.** With no skill, Opus 5.5 reused the helper, avoided the N+1 query, protected the auth route, kept the spec-conflicting test, and refused the missing package. jig's value is not on those tasks.
+- **The baseline is strong.** With no skill, Opus 5.5 reused the helper, avoided the N+1 query, protected the auth route, kept the spec-conflicting test, and refused the missing package. jig's value isn't on those tasks.
 - **jig's gain is on the two tasks where the right move is to stop.** "Make the export faster" needs a question first, and a schema rename needs approval first. Without jig, the model edited `src/export.js` on a guess and wrote the migration.
 - **The cost:** about $0.02 and 3 extra turns per run (+33% on these small tasks). Tier-0 overhead on the one-line `tiny` task was $0.07 against $0.05.
-- **plan-file isn't compared across arms.** Its grader checks jig's own plan format, which would be unfair to the other arms.
+- **plan-file isn't compared across arms.** Its grader checks jig's own plan format — that would be unfair to the other arms.
 
 ## Trigger evals
 
@@ -42,7 +42,7 @@ There are nine fixture repos, each with one seeded trap. Commands grade them (hi
 | Soft nudge ("before changing code ... use jig:plan") | Fixed the two misses (4/4), but fired on only 1 of 8 task-eval prompts | not run |
 | Firm nudge ("for any request to change code, invoke jig:plan first, before reading or editing files") | **10/10**; fired on 9/9 task prompts | **10/10**; jig won "habit tracker" |
 
-**Why the nudge exists:** when the prompt is a direct instruction, the skill description alone doesn't make the model check its skills. superpowers solves the same problem with a SessionStart prompt. jig's nudge is one paragraph at session start, and `JIG_NUDGE=off` turns it off.
+**Why the nudge exists:** when the prompt is a direct instruction, the skill description alone doesn't make the model check its skills. superpowers solves the same problem with a SessionStart prompt. jig's nudge is one paragraph at session start, and you can turn it off with `JIG_NUDGE=off`.
 
 ## Reviewer eval
 
@@ -58,7 +58,7 @@ There are nine fixture repos, each with one seeded trap. Commands grade them (hi
 | Plain fresh-context review | 4, 5 | $0.08 |
 | jig-reviewer agent | 5, 5 | $0.11 |
 
-The first grading credited the plain review with 3 and 4. A regex missed its correct C1 finding, and a manual check caught that. This compares a fresh review with jig's rubric against a fresh review without it. **It does not test the claim the reviewer exists for:** that a fresh context beats the author grading its own plan in the same conversation. That eval isn't built yet.
+The first grading credited the plain review with 3 and 4 — a regex missed its correct C1 finding, and a manual check caught that. This compares a fresh review with jig's rubric against a fresh review without it. **It does not test the claim the reviewer exists for:** that a fresh context beats the author grading its own plan in the same conversation. We haven't built that eval yet.
 
 ## Not verified
 

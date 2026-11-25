@@ -1,0 +1,25 @@
+name: Hook misfired
+description: A jig hook asked, warned or blocked when it shouldn't have, or stayed quiet when it should have
+labels: [hooks]
+body:
+  - type: dropdown
+    id: hook
+    attributes:
+      label: Hook
+      options: [session-start, pre-edit, pre-bash, stop]
+    validations: { required: true }
+  - type: textarea
+    id: call
+    attributes:
+      label: The tool call and what the hook did
+      description: The command or file path, and the hook's message.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have done
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes:
+      label: OS, Node, Claude Code and jig versions

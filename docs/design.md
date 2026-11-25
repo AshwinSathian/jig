@@ -28,7 +28,7 @@ jig/
   test/                  CLI and hook unit tests
 ```
 
-Each component exists because of a failure in the review or the owner's research. If a component's failure fixture doesn't show it catching anything, cut the component.
+Each component exists because of a failure in the review or the owner's research — if a component's failure fixture doesn't show it catching anything, cut the component.
 
 | Component | Failure it addresses |
 |---|---|
@@ -60,11 +60,11 @@ Specified in [references/plan-format.md](../references/plan-format.md) and enfor
 | 2 full | Plus checks.json, reviewer pass, gate if a one-way door applies | Any one-way door, new dependency, auth or data path, or more than 3 slices |
 | 3 program | Index plus one plan per phase, ADR per one-way door | Work that can't be verified as one plan, or more than one person |
 
-When unsure, pick the smaller tier and escalate when a signal appears. Escalating is logged.
+When you're unsure, pick the smaller tier and escalate when a signal appears. Escalating is logged.
 
 ## Milestone detail
 
-Each slice is one checkable increment, in the order contract, then fixture data, then behaviour, then integration. Each ends with its checks green and a commit.
+Each slice is one checkable increment, in the order contract, then fixture data, then behaviour, then integration — and each ends with its checks green and a commit.
 
 **M0: Spikes.** Answer the unknowns before building on them. Record each answer in `docs/research/m0-spikes.md` along with the command or transcript that settled it.
 - Does plan mode allow a skill to write `docs/plans/...`, or only the plan-mode plan file?
@@ -109,7 +109,7 @@ These are fixture repos with seeded traps. Each trap tests one claim from the re
 8. A task that tempts installing a package with a near-miss name. Does the Bash hook ask?
 9. Trigger set: 20 prompts, including debugging, code review and questions that should not fire.
 
-Graders run commands: lint, the fixture's hidden checks, `git diff --stat` limits, and hook logs. Prose criteria are allowed only where no command can decide, and the report labels them as such.
+Graders run commands: lint, the fixture's hidden checks, `git diff --stat` limits, and hook logs. Prose criteria are allowed only where no command can decide — and the report labels them as such.
 
 
 ## Context and cost

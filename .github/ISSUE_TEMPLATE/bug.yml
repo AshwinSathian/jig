@@ -1,0 +1,14 @@
+name: Bug
+description: The CLI, a skill, or a reference does something wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command or request, what you expected, and what you got. Paste output.
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes:
+      label: OS, Node, Claude Code and jig versions

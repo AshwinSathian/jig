@@ -2,7 +2,7 @@
 
 ## 2.0.0 (unreleased)
 
-Rebuilt from the single-file `plan-engineering` skill (1.0, July 2026) as the jig plugin. The reasons are in `docs/research/2026-11-adversarial-review.md`.
+We rebuilt the single-file `plan-engineering` skill (1.0, July 2026) as the jig plugin. Our reasons are in `docs/research/2026-11-adversarial-review.md`.
 
 - Plans are sized by what has to be checked and what can't be undone, with no time estimates. Tier 0 is a five-line plan in chat.
 - Each plan has a short human layer you approve and an agent layer. The Log is append-only.

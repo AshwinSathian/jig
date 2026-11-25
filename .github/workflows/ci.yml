@@ -6,23 +6,27 @@ permissions:
   contents: read
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix: { node: [20, 22, 24] }
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: "${{ matrix.node }}" }
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: npm test
       - run: node cli/jig.mjs lint evals/fixtures/plans/good docs/plans
       - run: node cli/jig.mjs lint --no-paths evals/fixtures/plans/produced
-      - run: npx --yes eslint@10 .
+      - run: npx --yes eslint@10.15.0 .
   secrets:
+    name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
