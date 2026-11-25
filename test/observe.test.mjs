@@ -118,3 +118,9 @@ test('switches gate: changing an existing switch value, or spelling it another w
   assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, '.github/workflows/ci.yml'), content: 'env:\n  "JIG\\x5fHOOKS_OFF": all\n' } }), 'YAML escape');
   assert.ok(asks({ tool_name: 'Write', tool_input: { file_path: join(dir, 'CLAUDE.md'), content: 'set jig_hooks_off=all' } }), 'other case');
 });
+
+test('rules gate: a workflow path with Windows separators still asks', () => {
+  const { dir } = tempRepo();
+  const out = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: `${dir}/.github\\workflows\\ci.yml`, content: 'x' } }));
+  assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask');
+});

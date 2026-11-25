@@ -101,9 +101,11 @@ function sameFile(a, b) {
 // code-review post treats them, and CI workflows, as paths a person reads.
 // Claude Code also reads CLAUDE.md and .claude/ below the root. Compared in
 // lower case: on macOS and Windows `.CLAUDE/` is the same directory.
+const pathParts = (rel) => rel.toLowerCase().split(/[\\/]/);
+const isWorkflow = (rel) => pathParts(rel).slice(0, 2).join('/') === '.github/workflows';
 const isRuleFile = (rel) => {
-  const parts = rel.toLowerCase().split(/[\\/]/);
-  return ['claude.md', 'review.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || parts.slice(0, 2).join('/') === '.github/workflows';
+  const parts = pathParts(rel);
+  return ['claude.md', 'review.md'].includes(parts[parts.length - 1]) || parts.slice(0, -1).includes('.claude') || isWorkflow(rel);
 };
 // Any case (Windows env names ignore it), or JIG followed by an escape.
 const SWITCHES = /\bjig_(gates|hooks_off)\b|\bjig\\[xuU_]/i;
@@ -140,7 +142,7 @@ export function preEdit(input) {
   // work, so an edit asks (JIG_GATES=observe:rules turns it into a log entry).
   // CLAUDE.md, REVIEW.md and .claude/ are only logged: CLAUDE.md edits are
   // usually legitimate, and Claude Code already prompts for .claude/ writes.
-  if (rel.toLowerCase().startsWith('.github/workflows/')) {
+  if (isWorkflow(rel)) {
     const a = ask('rules', `jig: ${rel} is a CI workflow. It runs in CI with the repo's secrets, so a person should read this change.`);
     const ctx = out?.hookSpecificOutput?.additionalContext;
     if (ctx) a.hookSpecificOutput.additionalContext = ctx;

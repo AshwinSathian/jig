@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, important, verdict, roundsToPass, summarize } from '../evals/reviewer/grade.mjs';
+import { grade, important, verdict, roundBehaviour, summarize } from '../evals/reviewer/grade.mjs';
 import invoices from '../evals/reviewer/cases/invoices.mjs';
 import control from '../evals/reviewer/cases/clean-flag.mjs';
 import notes from '../evals/reviewer/cases/notes.mjs';
@@ -11,7 +11,7 @@ test('cases: one tuning, one held-out test and one control, and only the control
   assert.deepEqual([notes.set, invoices.set, control.set], ['tuning', 'test', 'control']);
   assert.equal(control.defects.length, 0);
   assert.ok(invoices.defects.length >= 5 && !invoices.fixed, 'the held-out case has no fixed plan to tune');
-  assert.ok(notes.fixed, 'rounds-to-pass runs on the tuning case');
+  assert.ok(notes.fixed, 'the round loop runs on the tuning case');
 });
 
 test('recall counts each seeded defect a review names', () => {
@@ -31,10 +31,13 @@ test('a clean control counts Important findings as false positives, not Nits or 
   assert.equal(grade('Verdict: ready\nFindings: none', control).falsePositives, 0);
 });
 
-test('verdict and rounds-to-pass', () => {
+// Spec changed 2026-11-25 (open-items plan): rounds-to-pass is no longer a
+// metric; the loop reports round behaviour instead.
+test('verdict and round behaviour', () => {
   assert.equal(verdict('**Verdict: rethink**'), 'rethink');
-  assert.equal(roundsToPass(['fix first', 'fix first', 'ready']), 3);
-  assert.equal(roundsToPass(['fix first', 'rethink']), null);
+  assert.deepEqual(roundBehaviour(['fix first', 'fix first', 'ready']), { sequence: 'fix first > fix first > ready', passed: true, rethinkAfterRound3: false, rethinkEarly: false });
+  assert.equal(roundBehaviour(['fix first', 'fix first', 'rethink']).rethinkAfterRound3, true);
+  assert.equal(roundBehaviour(['fix first', 'rethink']).rethinkEarly, true, 'rethink before round 3 breaks the S8 contract');
 });
 
 test('summary keeps the test set apart from tuning, per arm', () => {
@@ -47,7 +50,7 @@ test('summary keeps the test set apart from tuning, per arm', () => {
   assert.equal(s.fresh.testRecall, 0.8);
   assert.equal(s.fresh.tuningRecall, 1);
   assert.equal(s.fresh.controlFalsePositives, 1);
-  assert.equal(s.fresh.roundsToPass, 2);
+  assert.deepEqual(s.fresh.rounds, { runs: 1, sequences: ['fix first > ready'], rethinkAfterRound3: 0, rethinkEarly: 0 });
   assert.equal(s.self.testRecall, 0.4);
   assert.ok(Math.abs(s.fresh.costUsd - 0.4) < 1e-9);
 });

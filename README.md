@@ -136,9 +136,9 @@ The full report, with every caveat, is [evals/results/REPORT.md](evals/results/R
 - the fixtures are small
 - the person who wrote jig wrote the tasks too
 
-All runs used Claude Opus 5.5 and Claude Code 2.1.330, on 2026-11-25. Each arm ran isolated from user skills, plugins and MCP servers.
+The task and trigger runs used Claude Opus 5.5, and the reviewer eval used Sonnet 5.5 (the default `claude -p` model in an isolated config), all on Claude Code 2.1.330 on 2026-11-25. Each arm ran isolated from user skills, plugins and MCP servers.
 
-**Task evals.** There are eight fixture repos, each with one seeded trap. Commands grade them: hidden tests, `git diff` and `jig lint`. Four graders also match a regex against the final message.
+**Task evals.** There are nine fixture repos, each with one seeded trap. The ninth, writing a plan file, ran on jig only. Commands grade them: hidden tests, `git diff` and `jig lint`. Four graders also match a regex against the final message.
 
 | | none | jig | plan mode* | superpowers |
 |---|---|---|---|---|
@@ -172,10 +172,10 @@ node evals/reviewer/run.mjs --runs 3
 ## Limits
 
 - **Untested so far:**
-  - models other than Opus 5.5
+  - models other than Opus 5.5 and Sonnet 5.5
   - repos bigger than a few files
-  - a multi-session build run end to end
-  - self-review against fresh-context review
+  - a multi-session build run end to end (one live session has driven the hooks: `node evals/hooks-live.mjs`)
+  - fresh review beating self-review on more than one held-out case
   - plans rated by people
 - **The hooks are Claude Code only.** The skills and plan files are plain markdown, but the skills point at `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code fills in.
 - **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.

@@ -17,7 +17,7 @@ The builder may send the same slice back after fixing your findings. Then the in
 - **Round 1:** review the whole slice.
 - **Round 2 and later:** review only `git diff <last reviewed commit>`, plus whether each earlier finding was fixed. Don't repeat a finding. If an earlier one isn't fixed, say "still open: <number>" once.
 - **Name the class of a bug, not one instance.** When you find a swallowed error, a missing auth check or an unescaped query, search the slice for every other place it occurs and report them as one finding, with each location.
-- **After round 3**, if Important findings are still open, return `Verdict: rethink`. Say what keeps going wrong, so the builder rethinks the approach with the owner instead of patching again.
+- **In round 3**, if any Important finding from an earlier round is still open, return `Verdict: rethink`, not `fix first`. Use `rethink` only from round 3 on. Say what keeps going wrong, so the builder rethinks the approach with the owner instead of patching again.
 
 ## Plan mode
 
