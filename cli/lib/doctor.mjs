@@ -55,9 +55,9 @@ export function configDigest(root) {
 
 // Acks live in the user's home, never in the repo: a repo could ship a
 // pre-written ack to silence D4.
-function ackPath(root) {
+function ackPath(root, { create = false } = {}) {
   const dir = join(process.env.JIG_HOME ?? join(homedir(), '.config', 'jig'), 'acks');
-  mkdirSync(dir, { recursive: true });
+  if (create) mkdirSync(dir, { recursive: true });
   return join(dir, createHash('sha256').update(realpathSync(root)).digest('hex').slice(0, 32) + '.json');
 }
 
@@ -163,7 +163,7 @@ const ICON = { ok: 'ok    ', gap: 'GAP   ', review: 'REVIEW', info: 'note  ' };
 export function doctor(root, { json: asJson = false, ack = false } = {}) {
   if (ack) {
     const d = configDigest(root);
-    writeFileSync(ackPath(root), JSON.stringify({ root: realpathSync(root), digest: d, at: new Date().toISOString() }));
+    writeFileSync(ackPath(root, { create: true }), JSON.stringify({ root: realpathSync(root), digest: d, at: new Date().toISOString() }));
     console.log('Marked the repo-level agent config as reviewed. jig doctor will flag it again if any of those files change.');
   }
   const F = diagnose(root);
