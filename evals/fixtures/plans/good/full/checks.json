@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "checks": [
+    { "id": "C1", "slice": "S1", "kind": "acceptance", "cmd": "node -e \"process.exit(0)\"", "expect": { "exit": 0 }, "timeout_s": 30, "fast": true, "protects": ["test/export.accept.test.ts"] },
+    { "id": "C2", "slice": "S1", "kind": "regression", "cmd": "node -e \"console.log('rows 1000')\"", "expect": { "exit": 0, "stdout": "rows \\d+" }, "timeout_s": 30, "fast": true },
+    { "id": "C3", "slice": "S2", "kind": "acceptance", "cmd": "node -e \"process.exit(0)\"", "timeout_s": 30, "fast": true },
+    { "id": "C4", "slice": "S2", "kind": "perf", "cmd": "node -e \"process.exit(0)\"", "timeout_s": 300, "fast": false }
+  ]
+}

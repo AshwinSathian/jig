@@ -1,0 +1,5 @@
+node_modules/
+.jig-state/
+evals/results/*/
+!evals/results/*.md
+.DS_Store
