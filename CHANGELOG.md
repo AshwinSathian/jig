@@ -1,10 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- **The README opens with a real run.** `scripts/readme-run.mjs` drives the CLI and hooks in a throwaway repo: a protected-test edit and an install that ask, an edit outside the slice that gets a note, a failing `jig verify`, the Stop hook's block, then a passing verify with its `Verified:` line. `test/readme-run.test.mjs` fails when the README's copy no longer matches what the CLI prints. The CLI and Hooks sections now cover `jig review`, the `commit` gate and the `Blocked:` exit.
-- **`jig verify` records a useful line for a `node --test` failure.** It used to record the error object's closing `}`. It now skips brace-only lines, stack frames and indented properties, so the Log says `7 !== 6`.
-
 ## 2.4.0 (2026-11-26)
 
 Post-build review. Plan, build, verify and review are now one loop, and review also works without a plan.
@@ -16,6 +11,8 @@ Post-build review. Plan, build, verify and review are now one loop, and review a
 - **`Blocked: <reason>`** as the last Log entry is an accepted end state. The Stop hook skips its tree and rounds checks and tells you once per session. The build skill says when to use it: a spec conflict, a check that can't pass in that environment, a missing service.
 - **A `commit` gate, observed.** pre-bash notes a `git commit` whose working tree has no passing evidence or review, unless the message says `Verified: none (<reason>)`. It only logs to `observe.jsonl` until you set `JIG_GATES=enforce:commit`, it lets go after two fires a session, and a commit with no message flag is only logged. On a 2,800-file repo the hook takes about 290 ms. `evals/hook-timing.mjs` times it and restores `observe.jsonl` afterwards.
 - `docs/research/2026-11-review-landscape.md` is the checked research behind these choices. Of 36 sources, 33 were confirmed on their own pages, six claims were reworded to match, and two are marked UNVERIFIED.
+- **The README opens with a real run.** `scripts/readme-run.mjs` drives the CLI and hooks in a throwaway repo: a protected-test edit and an install that ask, an edit outside the slice that gets a note, a failing `jig verify`, the Stop hook's block, then a passing verify with its `Verified:` line. `test/readme-run.test.mjs` fails when the README's copy no longer matches what the CLI prints. The CLI and Hooks sections now cover `jig review`, the `commit` gate and the `Blocked:` exit.
+- **`jig verify` records a useful line for a `node --test` failure.** It used to record the error object's closing `}`. It now skips brace-only lines, stack frames and indented properties, so the Log says `7 !== 6`.
 
 ## 2.3.0 (2026-11-25)
 
