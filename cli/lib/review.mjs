@@ -262,40 +262,12 @@ function planDirs(root, base, pd) {
   return [...new Set([pd, configPlansDir(cfg), 'docs/plans', 'docs/plan'].filter(Boolean))];
 }
 
-// Each line's code with comments cut out (strings kept, so a changed
-// string is a changed line), and whether the line is hidden: it starts
-// inside a block comment, template literal or triple-quoted string, or
-// after something the scanner can't close. `#` is a comment only in hash-
-// comment languages. A quote still open at the end of a line hides the rest
-// of the file: unsure means hidden (fail closed).
-// ponytail: a scanner, not a tokenizer (regex literals aren't known, so a
-// `/` that starts one can mislead it); a per-language tokenizer if needed.
-const HASH = new Set(['py', 'rb', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml', 'pl', 'r']);
-function scan(text, path) {
-  const hash = HASH.has(ext(path));
-  const out = []; let state = 'code'; let tq = null;
-  for (const l of text.split('\n')) {
-    const hidden = state !== 'code' || /^\s*\/\*/.test(l);
-    let code = ''; let q = null;
-    for (let i = 0; i < l.length; i++) {
-      const c = l[i]; const two = l.slice(i, i + 2); const three = l.slice(i, i + 3);
-      if (state === 'unsure') break;
-      if (state === 'block') { if (two === '*/') { state = 'code'; i++; } continue; }
-      if (state === 'tpl') { if (c === '\\') i++; else if (c === '`') state = 'code'; continue; }
-      if (state === 'tq') { if (three === tq) { state = 'code'; i += 2; } continue; }
-      if (q) { code += c; if (c === '\\') code += l[++i] ?? ''; else if (c === q) q = null; continue; }
-      if (two === '//' || (hash && c === '#')) break;
-      if (two === '/*') { state = 'block'; i++; continue; }
-      if (three === '"""' || three === "\'\'\'") { state = 'tq'; tq = three; i += 2; continue; }
-      if (c === '`') { state = 'tpl'; continue; }
-      if (c === "'" || c === '"') q = c;
-      code += c;
-    }
-    if (q && !l.endsWith('\\')) state = 'unsure';
-    out.push({ code: code.trim(), hidden });
-  }
-  return out;
-}
+// An added line that opens a block comment, a triple-quoted string or a
+// template literal (an odd number of backticks) can hide the assertions
+// after it while their lines stay the same, so the opening line is a signal
+// itself. No parser: an exact line either survives or it doesn't.
+const OPENER = /\/\*|"""|\'\'\'/;
+const opens = (l) => OPENER.test(l) || (l.match(/`/g)?.length ?? 0) % 2 === 1;
 
 export function tamperSignals(root, base, files, pd, head = null) {
   const dirs = planDirs(root, base, pd);
@@ -305,18 +277,17 @@ export function tamperSignals(root, base, files, pd, head = null) {
     if (head) return git(root, ['show', `${head}:${p}`]) ?? '';
     try { const st = lstatSync(join(root, p)); return st.isFile() && st.size <= MAX_UNTRACKED ? readFileSync(join(root, p), 'utf8') : ''; } catch { return ''; }
   };
-  // Each live assertion at the base, in a changed test file, that isn't live
-  // anywhere in the head's changed test files. Whole files are compared, not
-  // diff lines, so an assertion commented out by an added `/*` counts, and a
-  // moved or re-indented one doesn't. New assertions never offset a deleted
+  // Each assertion at the base, in a changed test file, whose exact trimmed
+  // line isn't in any of the head's changed test files: moved or re-indented
+  // lines survive, edited ones don't. New assertions never offset a deleted
   // one, since a rewrite is still a reason to look.
-  const live = (text, path) => scan(text, path).map((x, i) => ({ l: x.code, at: i + 1, hidden: x.hidden })).filter(({ l, hidden }) => !hidden && ASSERTION.test(l));
+  const asserts = (text) => text.split('\n').map((l, i) => ({ l: l.trim(), at: i + 1 })).filter(({ l }) => ASSERTION.test(l) && !/^(?:\/\/|#|\*)/.test(l));
   // A binary test can't be read for assertions, so it's a signal itself.
   for (const f of files) if (isTest(f.path) && f.binary) out.push({ signal: 'test-binary', file: f.path, line: 1, side: 'head' });
   const tests = files.filter((f) => isTest(f.path) && !f.binary);
-  const headLive = new Set(tests.flatMap((f) => live(headText(f.path), f.path).map((x) => x.l)));
+  const headLines = new Set(tests.flatMap((f) => headText(f.path).split('\n').map((l) => l.trim())));
   for (const f of tests) {
-    const gone = live(git(root, ['show', `${base}:${f.path}`]) ?? '', f.path).filter(({ l }) => !headLive.has(l));
+    const gone = asserts(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => !headLines.has(l));
     if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
   }
   for (const f of files) {
@@ -324,6 +295,7 @@ export function tamperSignals(root, base, files, pd, head = null) {
     const side = f.addedAt.length ? 'head' : 'base';
     if (isTest(f.path)) {
       f.added.forEach((l, i) => {
+        if (opens(l)) out.push({ signal: 'comment-opened', file: f.path, line: f.addedAt[i], text: l.trim() });
         const m = l.match(SKIP);
         if (m) out.push({ signal: /only|\bf(?:it|describe)/.test(m[0]) ? 'only' : 'skip', file: f.path, line: f.addedAt[i], text: l.trim() });
       });

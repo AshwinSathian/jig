@@ -172,60 +172,21 @@ test('a plansDir changed in the working tree does not hide the base checks.json'
   for (const want of ['config-edited .jig.json:1', 'protected test/a.accept.test.js:1', 'checks-edited docs/plans/demo/checks.json:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
 });
 
-test('an assertion re-added inside a block comment still counts as removed', () => {
+test('an added line that opens a comment, triple quote or template is a signal; an edited line is a removal; a binary test is a signal', () => {
   const { dir, start } = repo();
-  writeFileSync(join(dir, 'test/b.test.js'), [
-    "import assert from 'node:assert';",
-    "test('adds', () => {",
-    '  assert.equal(add(1, 2), 3);',
-    '  /*',
-    '  assert.equal(add(-1, 1), 0);',
-    '  */',
-    '});',
-    '',
-  ].join('\n'));
-  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
-});
-
-test('mid-line comments and template literals hide assertions; glob strings do not; a binary test is a signal', () => {
-  const { dir, start } = repo();
-  writeFileSync(join(dir, 'test/b.test.js'), [
-    "import assert from 'node:assert';",
-    "const glob = '**/*.js';",
-    "test('adds', () => {",
-    '  assert.equal(add(1, 2), 3); /*',
-    '  assert.equal(add(-1, 1), 0);',
-    '  */',
-    '});',
-    '',
-  ].join('\n'));
-  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
-  writeFileSync(join(dir, 'test/b.test.js'), [
-    "import assert from 'node:assert';",
-    "test('adds', () => {",
-    '  assert.equal(add(1, 2), 3);',
-    '  const fixture = `',
-    '  assert.equal(add(-1, 1), 0);',
-    '  `;',
-    '});',
-    '',
-  ].join('\n'));
-  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
-  writeFileSync(join(dir, 'test/b.test.js'), Buffer.from([0, 1, 2, 0, 255]));
-  assert.ok(kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('test-binary test/b.test.js')));
-});
-
-test('the scanner fails closed: # is code in JS, an open quote hides what follows, and a // inside a string is not a comment', () => {
-  const { dir, start } = repo();
-  const body = (lines) => writeFileSync(join(dir, 'test/b.test.js'), ["import assert from 'node:assert';", "test('adds', () => {", ...lines, '});', ''].join('\n'));
-  body(['  assert.equal(add(1, 2), 3);', '  const x = this.#a; /*', '  assert.equal(add(-1, 1), 0);', '  */']);
-  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4'], '# then /* in JS');
-  body(['  assert.equal(add(1, 2), 3);', "  const s = 'open", '  assert.equal(add(-1, 1), 0);']);
-  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4'], 'an unclosed quote');
+  const body = (lines) => writeFileSync(join(dir, 'test/b.test.js'), ["import assert from 'node:assert';", "test('adds', () => {", '  assert.equal(add(1, 2), 3);', ...lines, '});', ''].join('\n'));
+  for (const [opener, why] of [['  /*', 'block comment'], ['  const x = this.#a; /*', 'mid-line block comment'], ['  const f = `', 'template literal'], ["  '''", 'triple quote']]) {
+    body([opener, '  assert.equal(add(-1, 1), 0);', '  */']);
+    assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['comment-opened test/b.test.js:4'], why);
+  }
+  body(["  const glob = '**/*.js';", '  assert.equal(add(-1, 1), 0);']);
+  assert.ok(!kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('assertion-removed')), 'a glob string hides nothing');
   const r = repo();
   writeFileSync(join(r.dir, 'test/u.test.js'), "test('u', () => {\n  assert.equal(url(), 'http: //a');\n});\n");
   r.g('add', '-A'); r.g('commit', '-qm', 'u');
   const uStart = sha(r.dir);
   writeFileSync(join(r.dir, 'test/u.test.js'), "test('u', () => {\n  assert.equal(url(), 'http: //b');\n});\n");
-  assert.deepEqual(kinds(reviewBrief(r.dir, { base: uStart })), ['assertion-removed test/u.test.js:2'], 'a changed string that holds //');
+  assert.deepEqual(kinds(reviewBrief(r.dir, { base: uStart })), ['assertion-removed test/u.test.js:2'], 'an edited assertion');
+  writeFileSync(join(dir, 'test/b.test.js'), Buffer.from([0, 1, 2, 0, 255]));
+  assert.ok(kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('test-binary test/b.test.js')));
 });
