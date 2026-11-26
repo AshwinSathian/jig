@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: 2.4.0 released (v2.4.0, npm verified). Next: S8 (red team) from main. S11 needs a budget yes.
+Now: S8 done on branch review-redteam. Next: S9 (tampering signals). 2.4.6 (PR #14) waits on the owner. S11 needs a budget yes.
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -82,9 +82,9 @@ Goal: jig:review runs on this branch (with the plan), on a chattermeter clone (p
 Touch: `README.md`, `CHANGELOG.md`, `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `test/release.test.mjs`, `cli/lib/review.mjs`, `test/review-triggers.test.mjs`, `agents/jig-reviewer.md`, `test/review.test.mjs`, `cli/lib/hooks.mjs`, `test/commit-gate.test.mjs`, `evals/hook-timing.mjs`
 Checks: C13, C14, R7
 
-### S8: Red team [todo]
+### S8: Red team [done]
 Goal: `agents/jig-redteam.md` (writes only tests and repro files, no network, no `.env*`) works in the head worktree the skill made and returns repros. The skill re-runs each repro once in a head worktree and a base worktree, and counts it only when it fails on head and, for a regression, passes on base. One attempt per review, and it asks first on someone else's PR.
-Touch: `agents/jig-redteam.md (new)`, `skills/review/SKILL.md (new)`, `test/listing.test.mjs (new)`
+Touch: `agents/jig-redteam.md (new)`, `skills/review/SKILL.md (new)`, `test/listing.test.mjs (new)`, `README.md`
 Checks: C15, R8
 
 ### S9: Tampering check [todo]
@@ -143,3 +143,8 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26: S7 done. PR #7 passes CI (Test 20, 22 and 24, and Secret scan). The owner merges, creates the v2.4.0 release, and publish.yml publishes it. Two owner calls are in the PR: whether the `commit` gate enforces, and whether README's Hooks and CLI sections should list the `commit` gate and `jig review` (left as asked; they're described in the Review section). Owner proposals from the dogfood, not committed: two chattermeter doc fixes in `docs/plan/open-questions.md`. OQ-13 names `invitations.ts` where `removeMember` lives in `packages/db/src/lib/members.ts`, and OQ-22 and OQ-23 have table rows but no entries.
 - 2026-11-26: The owner chose a README over a site and asked to merge. PR #7 now also carries the README run (docs/plans/readme), the `jig verify` deciding-line fix, and the Hooks and CLI sections covering `jig review`, the `commit` gate and `Blocked:`. CI green on Node 20, 22 and 24 after one fix: Node 20 prints `node --test` as TAP when piped, so the demo's check became a plain node:assert script.
 - 2026-11-26: v2.4.0 released by the agent on the owner's yes. publish.yml passed, `npm view jig-plan version` gave 2.4.0, and `npm audit signatures` found 1 verified attestation. 2.4.1 (docs/plans/quiet-asks) followed for two false asks found in auto-mode transcripts.
+- 2026-11-26: Before S8, a fresh-context security review of the 2.4.5 install skip confirmed 10 bypasses. They are fixed as 2.4.6 in PR #14 (docs/plans/install-skip-tokens). S8 is built on its own branch from main, since it touches no hook code.
+- 2026-11-26: S8 Touch gains `README.md`: Limits must say the red team's limits are prompt-only (owner's request). C15 failed before the agent existed (`agents/jig-redteam.md: No such file`).
+- 2026-11-26 17:43: jig verify S8: C15 pass; R8 pass
+- 2026-11-26: S8 done. `agents/jig-redteam.md` (model opus, Write and Edit, limits in the prompt) writes repros in an attack worktree. Review step 5 re-runs only the agent's new repro files, in clean head and base worktrees that the skill builds itself. It counts a repro that fails on head with its own assertion and passes on base, or that fails on base only because the code under test doesn't exist there. A repro failing the same way on base is Pre-existing. The skill builds the run command itself, removes all three worktrees even on failure, and keeps counted repros in `.git/jig/repros/` for later rounds. README Limits says the limits are prompt-only. The jig-reviewer read it blind and gave fix first, with 3 Important and 4 Nit findings. Two ran repros in the worktree the agent had written to, and one let the agent's own regression label skip the base run. The third covered round 1 only. All three are fixed, plus the base-worktree ambiguity and running the agent's command. Round 2 confirmed 4 of 5 fixed and found the saved repro path didn't outlast the session, and a Pre-existing repro had no slot in the report. Both are fixed, with no round 3, because each fix is one line. The Important findings weren't sent to validate mode: I accepted each on reading. Open: README's 430-token figure, to re-measure at S12's release. Not recorded with `jig review --record`, since the last round's verdict predates the final edits. The slice-start base fell before 2.4.x, because those commits' `Verified:` trailers name no slice, so this review used `--base 9132f31`. C15 is a text check, and no model has run step 5 yet. S12's dogfood is its first run.
+- 2026-11-26 17:44: jig verify S8: C15 pass; R8 pass

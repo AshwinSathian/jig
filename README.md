@@ -243,6 +243,7 @@ node evals/reviewer/run.mjs --runs 3
 - **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
 - **The Stop hook only works with a `checks.json`.** Brief plans that list their checks as commands don't trigger it.
 - **Review is new and barely measured.** No eval has yet shown that the blind first pass, the validator or the partner routing find more real bugs than a plain review. 2.5.0's eval is meant to. The tests on the review skill and the reviewer show the rules are written down, not that a model follows them.
+- **The red team's limits are a prompt, not a sandbox.** jig-redteam is told to write only test and repro files, use no network and leave `.env*` alone, and nothing enforces that: plugin agents can't carry hooks or a permission mode, and Bash can reach the network. The controls: it works in a throwaway worktree, only its new repro files leave it, jig:review re-runs each one in clean head and base worktrees before it counts, and jig:review asks before it runs on someone else's PR.
 - **The router's triggers are path and line patterns.** They over-match on purpose, since a missed trigger skips a partner. A security trigger only means owasp-security gets a look.
 - **No telemetry.** The CLI and hooks make no network requests. The evals run Claude on your account, and whatever the agent does in their throwaway fixture repos.
 
