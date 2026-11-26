@@ -1,0 +1,419 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "C1",
+      "slice": "S1",
+      "kind": "acceptance",
+      "cmd": "F=docs/research/2026-11-review-landscape.md; test \"$(grep -c '\\[opened\\]' $F)\" -ge 10 && ! grep -nE 'https?://|[0-9]%' $F | grep -vE '\\[opened\\]|\\[snippet\\]|UNVERIFIED'",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C2",
+      "slice": "S2",
+      "kind": "acceptance",
+      "cmd": "node --test test/review.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/review.test.mjs"
+      ]
+    },
+    {
+      "id": "C3",
+      "slice": "S2",
+      "kind": "acceptance",
+      "cmd": "node --test test/review-triggers.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/review-triggers.test.mjs"
+      ]
+    },
+    {
+      "id": "C4",
+      "slice": "S2",
+      "kind": "e2e",
+      "cmd": "node -e \"const x=(a)=>require('child_process').execFileSync(a[0],a.slice(1),{encoding:'utf8'}).trim();const b=x(['git','merge-base','HEAD','main']);const j=JSON.parse(x(['node','cli/jig.mjs','review','--json','--base',b]));const ok=j.base===b&&/^[0-9a-f]{40}$/.test(j.tree)&&j.triggers.some(t=>t.id==='tests-or-checks'&&t.files.length)&&!j.triggers.some(t=>t.id==='prose'&&t.files.some(f=>f.endsWith('/PLAN.md')));process.exit(ok?0:1)\"",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C5",
+      "slice": "S3",
+      "kind": "acceptance",
+      "cmd": "node --test test/review-records.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/review-records.test.mjs"
+      ]
+    },
+    {
+      "id": "C6",
+      "slice": "S3",
+      "kind": "acceptance",
+      "cmd": "for k in evidence.jsonl reviews.jsonl observe.jsonl sessions/ '\"v\"'; do grep -qF \"$k\" docs/evidence-schema.md || exit 1; done",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C7",
+      "slice": "S4",
+      "kind": "acceptance",
+      "cmd": "for k in 'model: opus' 'Phase 1' 'Phase 2' 'phantom' 'Declined to judge' 'plan is wrong' 'Needs verification' 'Validate mode' 'merge-base'; do grep -qF \"$k\" agents/jig-reviewer.md || exit 1; done && node --test test/reviewer-grade.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C8",
+      "slice": "S5",
+      "kind": "acceptance",
+      "cmd": "grep -q '^name: review' skills/review/SKILL.md && grep -qF 'jig review --json' skills/review/SKILL.md && grep -qF 'Not checked' skills/review/SKILL.md && grep -qF 'Reviewed:' skills/review/SKILL.md && grep -qF 'jig:review' skills/build/SKILL.md && grep -qF 'Blocked:' skills/build/SKILL.md && grep -qF 'would miss' skills/review/SKILL.md && grep -qF 'ashwin-sathian.md' skills/review/SKILL.md && grep -qiF 'five' skills/review/SKILL.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C9",
+      "slice": "S6",
+      "kind": "acceptance",
+      "cmd": "node --test test/commit-gate.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/commit-gate.test.mjs"
+      ]
+    },
+    {
+      "id": "C10",
+      "slice": "S6",
+      "kind": "acceptance",
+      "cmd": "node --test test/blocked.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/blocked.test.mjs"
+      ]
+    },
+    {
+      "id": "C11",
+      "slice": "S6",
+      "kind": "perf",
+      "cmd": "node evals/hook-timing.mjs \"${JIG_TIMING_REPO:-.}\"",
+      "expect": {
+        "exit": 0,
+        "stdout": "pre-bash commit p50 \\d+ ms"
+      },
+      "timeout_s": 180,
+      "fast": false
+    },
+    {
+      "id": "C12",
+      "slice": "S5",
+      "kind": "acceptance",
+      "cmd": "node --test test/listing.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/listing.test.mjs"
+      ]
+    },
+    {
+      "id": "C13",
+      "slice": "S7",
+      "kind": "acceptance",
+      "cmd": "node --test test/release.test.mjs && grep -q '^## 2.4.0' CHANGELOG.md && node -e \"const [a,b]=require('./package.json').version.split('.').map(Number);process.exit(a>2||(a===2&&b>=4)?0:1)\" && grep -q '^## Review' README.md && grep -qF '/security-review' README.md && grep -qF '/simplify' README.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C14",
+      "slice": "S7",
+      "kind": "acceptance",
+      "cmd": "grep -q 'review dogfood 2.4.0' docs/plans/review-loop/PLAN.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C15",
+      "slice": "S8",
+      "kind": "acceptance",
+      "cmd": "for k in 'git worktree add' 'model: opus' '.env' 'fails on'; do grep -qF \"$k\" agents/jig-redteam.md skills/review/SKILL.md || exit 1; done && grep -qF 'jig-redteam' skills/review/SKILL.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C16",
+      "slice": "S9",
+      "kind": "acceptance",
+      "cmd": "node --test test/tamper.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/tamper.test.mjs"
+      ]
+    },
+    {
+      "id": "C17",
+      "slice": "S10",
+      "kind": "acceptance",
+      "cmd": "node --test test/review-learn.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/review-learn.test.mjs"
+      ]
+    },
+    {
+      "id": "C18",
+      "slice": "S11",
+      "kind": "acceptance",
+      "cmd": "node --test test/review-eval.test.mjs",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true,
+      "protects": [
+        "test/review-eval.test.mjs"
+      ]
+    },
+    {
+      "id": "C19",
+      "slice": "S11",
+      "kind": "acceptance",
+      "cmd": "node evals/reviewer/run.mjs --check",
+      "expect": {
+        "exit": 0,
+        "stdout": "6 arms"
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C20",
+      "slice": "S12",
+      "kind": "acceptance",
+      "cmd": "node -e \"const c=require('./evals/triggers/cases.json');process.exit(c.filter(x=>x.id.startsWith('collision-')).length>=5?0:1)\"",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C21",
+      "slice": "S12",
+      "kind": "acceptance",
+      "cmd": "node --test test/release.test.mjs && grep -q '^## 2.5.0' CHANGELOG.md && node -e \"const [a,b]=require('./package.json').version.split('.').map(Number);process.exit(a>2||(a===2&&b>=5)?0:1)\"",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C22",
+      "slice": "S11",
+      "kind": "acceptance",
+      "cmd": "grep -q '^## Review eval (2.5' evals/results/REPORT.md || grep -q 'owner declined the review eval' docs/plans/review-loop/PLAN.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C23",
+      "slice": "S12",
+      "kind": "acceptance",
+      "cmd": "grep -q 'review nudge:' docs/plans/review-loop/PLAN.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "C24",
+      "slice": "S12",
+      "kind": "acceptance",
+      "cmd": "grep -q 'review dogfood 2.5.0' docs/plans/review-loop/PLAN.md",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 60,
+      "fast": true
+    },
+    {
+      "id": "R2",
+      "slice": "S2",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R3",
+      "slice": "S3",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R4",
+      "slice": "S4",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R5",
+      "slice": "S5",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R6",
+      "slice": "S6",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R7",
+      "slice": "S7",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R8",
+      "slice": "S8",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R9",
+      "slice": "S9",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R10",
+      "slice": "S10",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R11",
+      "slice": "S11",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    },
+    {
+      "id": "R12",
+      "slice": "S12",
+      "kind": "regression",
+      "cmd": "npm test",
+      "expect": {
+        "exit": 0
+      },
+      "timeout_s": 120,
+      "fast": true
+    }
+  ]
+}

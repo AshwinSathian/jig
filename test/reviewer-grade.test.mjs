@@ -112,3 +112,27 @@ test('"Findings: none" and a prose lead-in to a checked list end the findings', 
   assert.equal(grade('Verdict: ready\nFindings:\n1. [Nit] a\n\nI checked the following against the repo:\n- **Plan structure:** matches', control).falsePositives, 0);
   assert.equal(grade('Verdict: fix first\nFindings:\n1. a\n\nI checked the following:\n- b', control).falsePositives, 1);
 });
+
+test('a "Declined to judge" or "Would miss" list ends the findings, and the new finding lines still count', () => {
+  const text = [
+    'Verdict: fix first',
+    'Findings:',
+    '1. [Important] [Confirmed] missing-auth: the route skips requireAuth. Evidence: src/api/u.js:4. Fix: call it.',
+    '   Reachability: any caller, the users table, read all rows, one request',
+    'Declined to judge:',
+    '- the retry policy, which the spec leaves to ops',
+    'Would miss:',
+    '- races under load',
+  ].join('\n');
+  assert.equal(grade(text, control).falsePositives, 1);
+});
+
+test('an inline "Declined to judge: ..." line also ends the findings', () => {
+  const text = 'Verdict: fix first\nFindings:\n1. a: b. Evidence: c.\nDeclined to judge: the retry policy (left to ops), and\n- the cache TTL (needs load data)';
+  assert.equal(grade(text, control).falsePositives, 1, 'an untagged review counts every item before the section ends');
+});
+
+test('a fenced code block inside a finding is neither a section end nor more findings', () => {
+  const text = 'Verdict: fix first\nFindings:\n1. a: b. Fix:\n```\ntry:\n- old()\n+ new()\n```\n2. c: d.\nNot checked: none';
+  assert.equal(grade(text, control).falsePositives, 2);
+});

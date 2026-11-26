@@ -17,7 +17,50 @@ npx jig-plan doctor            # or: npm install -g jig-plan, then `jig doctor`
 
 Then work the way you already do, e.g. *"add CSV export to the reports page"*. A one-line fix gets a four-line plan in chat and carries on. A feature gets a short plan you approve, and then it's built one slice at a time, with the evidence written into the plan. Run `jig doctor` in a repo to see what it'd want fixed first.
 
-**Contents:** [How it works](#how-it-works) · [What a plan looks like](#what-a-plan-looks-like) · [Hooks](#hooks) · [The CLI](#the-cli) · [Evidence](#evidence) · [Limits](#limits) · [How it compares](#how-it-compares) · [Updating and troubleshooting](#updating-and-troubleshooting)
+## A real run
+
+This is jig's own output, from a throwaway repo with one plan and one acceptance test. The `#` lines stand in for the agent, and everything else is what the CLI and hooks print. In a session, Claude Code shows an `ask` as a permission prompt, and a `block` sends the agent back to work with the reason. [`scripts/readme-run.mjs`](scripts/readme-run.mjs) generates the section, and a test fails if it drifts from what the current CLI prints. Durations show as `(…s)`, and each hook's JSON is cut down to its decision and message.
+
+<!-- run:start -->
+```console
+$ jig status
+Plans live in docs/plans/ (set "plansDir" in .jig.json to change).
+Order totals (docs/plans/totals/PLAN.md) · building · 0/1 slices done
+  Now: S1, totals.
+  Doing: S1 Totals · touch: src/total.js, test/
+
+# The agent goes to edit the acceptance test. Before an edit:
+ask: jig: test/total.accept.test.js is protected by check C1 in docs/plans/totals/PLAN.md. Acceptance tests come from the spec; edit one only when the spec changed, and log the decision in the plan.
+
+# It reaches for a package. Before a Bash call:
+ask: jig: this adds left-pad (npm). A new dependency is a one-way door: check that the name is the real package (hallucinated names get registered by attackers), its age and downloads, and record it in the plan's Decisions.
+
+# It edits a file the slice doesn't list:
+note: jig: src/format.js is outside S1's Touch list (src/total.js, test/). If the slice needs it, add it to Touch with a Log line; otherwise leave it for its own slice.
+
+# It changes src/total.js with a bug and runs the checks:
+$ jig verify
+FAIL C1 (…s) node test/total.accept.test.js
+     exit 1 (expected 0): 7 !== 6
+0/1 passed
+
+# It says "done". The Stop hook:
+block: jig (docs/plans/totals/PLAN.md): the last `jig verify` had failing checks (C1). Rounds so far: C1 (round 1 of 3). Fix the code, not the check, and verify again, or tell the user plainly they are failing; don't describe the slice as done.
+
+# It fixes the bug:
+$ jig verify --record
+PASS C1 (…s) node test/total.accept.test.js
+1/1 passed · recorded in the plan Log
+
+For the slice commit:
+Verified: S1 C1 pass (tree c5f5e00)
+
+# It stops again:
+(nothing: the hook lets it through)
+```
+<!-- run:end -->
+
+**Contents:** [A real run](#a-real-run) · [How it works](#how-it-works) · [What a plan looks like](#what-a-plan-looks-like) · [Review](#review) · [Hooks](#hooks) · [The CLI](#the-cli) · [Evidence](#evidence) · [Limits](#limits) · [How it compares](#how-it-compares) · [Updating and troubleshooting](#updating-and-troubleshooting)
 
 ## How it works
 
@@ -43,7 +86,8 @@ Then work the way you already do, e.g. *"add CSV export to the reports page"*. A
 
    Everything else goes ahead with the assumption logged. Say "no questions" and it goes ahead on all of it, except anything destructive.
 5. **Build.** The `build` skill takes one slice per session. It writes the acceptance checks from the spec first, implements, runs `jig verify --record`, logs what changed and commits. If a test and the spec disagree, it stops and tells you rather than editing the test.
-6. **Guard.** The second time the same mistake turns up, the `guard` skill turns it into a test, lint rule, deny rule or hook, not another line of prose.
+6. **Review.** Once a slice's checks pass, the `review` skill reviews the diff (see [Review](#review)). So the loop is plan → build → verify → review.
+7. **Guard.** The second time the same mistake turns up, the `guard` skill turns it into a test, lint rule, deny rule or hook, not another line of prose.
 
 A `jig-reviewer` agent reviews plans, and each slice's diff, in a fresh context and backs every finding with a file and line or a command. It tags each finding Important, Nit or Pre-existing, so nobody gets held to a bug they didn't write. On a second pass it only looks at what changed and doesn't repeat itself. If Important findings are still open after three rounds, it says to rethink the approach. If your repo has a `REVIEW.md` of `When: · Check: · Source:` entries, it applies the ones that match the diff, reading the file from the plan's baseline commit so the slice can't edit its own checklist.
 
@@ -86,16 +130,31 @@ Checks: C1, C2
 
 Why no estimates? Agents miss their own runtimes by a typical factor of 2.9 (AgentTime, arXiv 2610.09944). One plan jig's predecessor wrote estimated 30 weeks for work that shipped in 15 days.
 
+## Review
+
+The `review` skill runs after a slice is built and `jig verify` is green. It also works without a plan, on a branch or a PR.
+
+1. `jig review` works out what to compare: `--base` or `--pr` if you give one, otherwise the start of the slice you're on, then the merge-base with your default branch, then HEAD for uncommitted work. It prints a brief: the tree fingerprint, what changed, which triggers matched, and the `REVIEW.md` entries from the base that apply. It runs git, and gh for `--pr`, and never your repo's own commands.
+2. The gate runs first: `jig verify`, or your test command when there's no plan. A red gate ends the review there. On someone else's PR it asks before running anything, because that runs their code.
+3. jig-reviewer reads the change blind first. It gets the parts of the plan you approved (or your request), the diff and the repo, but not the Log, the commit messages or the PR text. Only after its findings exist does it get the builder's account, and it checks each claim against the diff. A claim the diff doesn't back up is a finding, and so is a comment telling the reviewer what to conclude.
+4. Each Important finding goes to a fresh validator that sees only the file, the line and the defect claimed, never the reasoning. It confirms the finding from the code or drops it, and the report counts what it dropped.
+5. UI files go to loupe, prose an agent wrote goes to humanizing-writing, and security-sensitive files go to owasp-security, if you have them installed. If you don't, the report says so under "Not checked".
+6. The review is recorded in `.git/jig/reviews.jsonl` against the tree it reviewed, and the report ends with a `Reviewed:` line to put in the commit beside `Verified:`. [docs/evidence-schema.md](docs/evidence-schema.md) describes the format, so CI can read it without jig.
+
+The report leads with the verdict and the gate's result, shows five findings at most, and lists what it didn't check.
+
+Two hooks go with it: the `Blocked:` exit and the `commit` gate (see [Hooks](#hooks)).
+
 ## Hooks
 
 | Hook | What it does | What it never does |
 |---|---|---|
 | SessionStart | One paragraph telling the model to plan code changes with jig, plus the state of any active plan | Run anything from the repo |
 | Before an edit | **Asks** before a file a check protects (an acceptance test) is edited, and also when `checks.json` is invalid. Once a plan is approved, also asks when an edit would loosen `checks.json` (drop a check, change its command or expectation, unprotect a file) or move the plan out of approved or building. New checks and new protected files go through without a prompt. Notes once per file when an edit falls outside the current slice | Return `allow`, so your own permission prompts still apply |
-| Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
-| Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
+| Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package. Notes a `git commit` whose tree has no passing `jig verify` or `ready` review, unless the message says `Verified: none (<reason>)` | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
+| Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried. A builder that can't finish as specified (a test contradicts the spec, a check can't run here) writes `Blocked: <reason>` as the last Log line, and the hook lets the session end and tells you why | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
 
-Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. A sixth, `rules`, asks before an edit to a CI workflow under `.github/workflows/`, since workflows run with your repo's secrets. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` only get logged: editing CLAUDE.md is usually ordinary work, and Claude Code already asks before writes to `.claude/`. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
+Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. `rules` asks before an edit to a CI workflow under `.github/workflows/`, since workflows run with your repo's secrets. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` only get logged: editing CLAUDE.md is usually ordinary work, and Claude Code already asks before writes to `.claude/`. `commit` starts observed: it only logs until you set `JIG_GATES=enforce:commit`, so you can see how often it would ask first. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
 
 ## The CLI
 
@@ -108,6 +167,9 @@ jig status                                               active plans, their Now
 jig verify [--slice S2] [--fast] [--record]              run checks.json; --record writes the result to the Log
                                                          and prints a Verified: line for the commit
 jig doctor [--ack]                                       report harness gaps; --ack marks the repo's agent config as read
+jig review [--base <ref> | --pr <n>] [--json] [--blind]  the brief for reviewing a change: base, tree, files, triggers
+jig review --record <findings.json>                      record a review against the tree; prints a Reviewed: line
+jig review --outcome <id> fixed|wrong|intentional|didnt-matter   settle a finding
 ```
 
 Here's `jig doctor` on a bare repo with an `.env` file in it:
@@ -180,12 +242,15 @@ node evals/reviewer/run.mjs --runs 3
 - **The hooks are Claude Code only.** The skills and plan files are plain markdown, but the skills point at `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code fills in.
 - **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
 - **The Stop hook only works with a `checks.json`.** Brief plans that list their checks as commands don't trigger it.
+- **Review is new and barely measured.** No eval has yet shown that the blind first pass, the validator or the partner routing find more real bugs than a plain review. 2.5.0's eval is meant to. The tests on the review skill and the reviewer show the rules are written down, not that a model follows them.
+- **The router's triggers are path and line patterns.** They over-match on purpose, since a missed trigger skips a partner. A security trigger only means owasp-security gets a look.
 - **No telemetry.** The CLI and hooks make no network requests. The evals run Claude on your account, and whatever the agent does in their throwaway fixture repos.
 
 ## How it compares
 
 - **No plugin:** Opus 5.5 on its own is strong at the code-level traps (see [Evidence](#evidence)). jig adds the stops: questions before guessing, a gate on one-way doors, checks that a test can't be quietly edited, and evidence before "done".
 - **Plan mode:** a built-in approval gate with no plan format, checks or follow-through. jig works inside it, writing the plan to plan mode's file and then to `docs/plans/` once you approve.
+- **Built-in `/code-review`, `/security-review` and `/simplify`:** `/code-review` checks a diff for correctness bugs, `/security-review` looks for vulnerabilities in the branch's changes, and `/simplify` cleans up changed code and applies the fixes. jig's review is for the end of a jig build: it gates on the plan's checks, reads the diff before the builder's account of it, and records a review tied to the tree. For a quick review with no plan, the built-ins are the lighter tool.
 - **[superpowers](https://github.com/obra/superpowers):** a broad skills methodology (brainstorm, spec, plan, subagent build) with no enforcing hooks. Both plugins trigger on planning requests. In our trigger eval jig fired first every time, but you'll get two planning workflows if both are on.
 - **[Spec Kit](https://github.com/github/spec-kit) and [OpenSpec](https://github.com/Fission-AI/OpenSpec):** spec-driven workflows built around spec, plan and task files, working with many agents. jig keeps the plan short, sizes it to the task, and puts its weight on executable checks and hooks rather than on the spec documents.
 - **[AgentOps](https://github.com/boshu2/agentops):** engineering-practice skills with published evals. It's the closest in spirit, and its evidence section is the model ours follows.

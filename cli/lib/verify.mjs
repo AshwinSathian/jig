@@ -7,9 +7,15 @@ import { stateDir, showHead, treeId, headSha } from './git.mjs';
 import { plansDir } from './status.mjs';
 import { today } from './scaffold.mjs';
 
+// The last line that says something. Skips what an error object or stack
+// trace ends with (node --test ends on `}`): brace-only lines, `at ...`
+// frames, indented `key: value,` properties and node's closing `Node.js vNN`
+// line. Falls back to the last line.
+const NOISE = /^\s*[{}[\](),]*\s*$|^\s+at\s|^\s+[\w$]+: .*,?$|^Node\.js v\d/;
 function lastLine(s) {
-  const lines = (s ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
-  return lines.length ? lines[lines.length - 1].slice(0, 200) : '';
+  const lines = (s ?? '').split('\n').filter((l) => l.trim());
+  const pick = lines.findLast((l) => !NOISE.test(l)) ?? lines[lines.length - 1] ?? '';
+  return pick.trim().slice(0, 200);
 }
 
 export function runCheck(root, c) {
@@ -43,7 +49,7 @@ export function verifyPlan(root, planPath, opts = {}) {
   const logged = Boolean(opts.record && results.length);
   // After the checks: output they write must not make this record stale.
   const tree = workTree(root);
-  const record = { t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, head: headSha(root, { short: false }), tree, checks, results: results.map(({ id, pass, exit, ms, why }) => ({ id, pass, exit, ms, ...(pass ? {} : { why: why.slice(0, 200) }) })) };
+  const record = { v: 1, t: Date.now(), plan, slice: opts.slice ?? null, fast: Boolean(opts.fast), logged, head: headSha(root, { short: false }), tree, checks, results: results.map(({ id, pass, exit, ms, why }) => ({ id, pass, exit, ms, ...(pass ? {} : { why: why.slice(0, 200) }) })) };
   appendFileSync(join(stateDir(root), 'evidence.jsonl'), JSON.stringify(record) + '\n');
   if (logged) appendLog(planPath, logLine(results, opts.slice, changes));
   return { results, ...changes, tree };
@@ -104,12 +110,15 @@ export function appendLog(planPath, line) {
   writeFileSync(planPath, lines.join('\n').replace(/\n*$/, '\n'));
 }
 
-// Every readable evidence record, oldest first. A corrupt line is skipped.
-export function evidence(root) {
-  const p = join(stateDir(root), 'evidence.jsonl');
+// Every readable record in a .git/jig/*.jsonl file, oldest first. A corrupt
+// line is skipped.
+export function readJsonl(root, name) {
+  const p = join(stateDir(root), name);
   if (!existsSync(p)) return [];
   return readFileSync(p, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
 }
+
+export const evidence = (root) => readJsonl(root, 'evidence.jsonl');
 
 // The last readable record, parsed from the end: the Stop hook calls this on
 // every turn, and records grow with the number of checks.
