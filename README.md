@@ -40,7 +40,7 @@ note: jig: src/format.js is outside S1's Touch list (src/total.js, test/). If th
 
 # It changes src/total.js with a bug and runs the checks:
 $ jig verify
-FAIL C1 (…s) node --test test/total.accept.test.js
+FAIL C1 (…s) node test/total.accept.test.js
      exit 1 (expected 0): 7 !== 6
 0/1 passed
 
@@ -49,11 +49,11 @@ block: jig (docs/plans/totals/PLAN.md): the last `jig verify` had failing checks
 
 # It fixes the bug:
 $ jig verify --record
-PASS C1 (…s) node --test test/total.accept.test.js
+PASS C1 (…s) node test/total.accept.test.js
 1/1 passed · recorded in the plan Log
 
 For the slice commit:
-Verified: S1 C1 pass (tree 012b971)
+Verified: S1 C1 pass (tree c5f5e00)
 
 # It stops again:
 (nothing: the hook lets it through)

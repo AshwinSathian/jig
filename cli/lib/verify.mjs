@@ -9,8 +9,9 @@ import { today } from './scaffold.mjs';
 
 // The last line that says something. Skips what an error object or stack
 // trace ends with (node --test ends on `}`): brace-only lines, `at ...`
-// frames and indented `key: value,` properties. Falls back to the last line.
-const NOISE = /^\s*[{}[\](),]*\s*$|^\s+at\s|^\s+[\w$]+: .*,?$/;
+// frames, indented `key: value,` properties and node's closing `Node.js vNN`
+// line. Falls back to the last line.
+const NOISE = /^\s*[{}[\](),]*\s*$|^\s+at\s|^\s+[\w$]+: .*,?$|^Node\.js v\d/;
 function lastLine(s) {
   const lines = (s ?? '').split('\n').filter((l) => l.trim());
   const pick = lines.findLast((l) => !NOISE.test(l)) ?? lines[lines.length - 1] ?? '';

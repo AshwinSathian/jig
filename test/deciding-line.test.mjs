@@ -16,3 +16,8 @@ test('a summary line at the end is still the one recorded', () => {
   assert.match(check("console.log('Tests:       1 failed, 1 total'); process.exit(1)").why, /Tests: +1 failed, 1 total$/);
   assert.match(check("console.error('boom'); process.exit(1)").why, /boom$/);
 });
+
+test("an uncaught error records the error, not node's version line", () => {
+  const r = check("console.error(['AssertionError [ERR_ASSERTION]: total([1, 2, 3]) should be 6', '    at file:///t.js:3:8 {', '  generatedMessage: false,', \"  operator: 'strictEqual'\", '}', '', 'Node.js v20.19.5'].join('\\n')); process.exit(1)");
+  assert.match(r.why, /total\(\[1, 2, 3\]\) should be 6$/);
+});

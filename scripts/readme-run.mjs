@@ -19,10 +19,10 @@ const START = '<!-- run:start -->';
 const END = '<!-- run:end -->';
 
 // The hooks take their root from CLAUDE_PROJECT_DIR when cwd is missing, and
-// the gate variables would silence them. NODE_TEST_CONTEXT, set when this runs
-// under node --test, would turn the fixture's own test run into a subtest.
+// the gate variables would silence them. The fixture's check is a plain
+// node:assert script, because node --test's output differs by Node version.
 const env = { ...process.env, GIT_AUTHOR_NAME: 'jig', GIT_AUTHOR_EMAIL: 'jig@example.invalid', GIT_COMMITTER_NAME: 'jig', GIT_COMMITTER_EMAIL: 'jig@example.invalid', GIT_AUTHOR_DATE: '2026-11-26T10:00:00Z', GIT_COMMITTER_DATE: '2026-11-26T10:00:00Z', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
-for (const k of ['CLAUDE_PROJECT_DIR', 'JIG_GATES', 'JIG_HOOKS_OFF', 'JIG_NUDGE', 'NODE_TEST_CONTEXT']) delete env[k];
+for (const k of ['CLAUDE_PROJECT_DIR', 'JIG_GATES', 'JIG_HOOKS_OFF', 'JIG_NUDGE']) delete env[k];
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-run-')));
 const clean = (s) => s.split(dir).join('~/demo').replace(/\((\d+(\.\d+)?)m?s\)/g, '(…s)').trimEnd();
@@ -54,12 +54,12 @@ try {
   mkdirSync(join(dir, 'src')); mkdirSync(join(dir, 'test'));
   writeFileSync(join(dir, 'package.json'), '{ "name": "demo", "type": "module", "scripts": { "test": "node --test" } }\n');
   writeFileSync(join(dir, 'src/total.js'), 'export const total = (xs) => xs.reduce((a, b) => a + b, 0);\n');
-  writeFileSync(join(dir, 'test/total.accept.test.js'), "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { total } from '../src/total.js';\ntest('totals an order', () => assert.equal(total([1, 2, 3]), 6));\n");
+  writeFileSync(join(dir, 'test/total.accept.test.js'), "import assert from 'node:assert/strict';\nimport { total } from '../src/total.js';\nassert.equal(total([1, 2, 3]), 6);\n");
   expect(jig('new', 'totals', '--tier', 'full', '--title', 'Order totals').stdout, /wrote/, 'jig new');
   const planPath = join(dir, 'docs/plans/totals/PLAN.md');
   // jig new writes today's date, which would change the tree hash daily.
   writeFileSync(planPath, readFileSync(planPath, 'utf8').replace(/\d{4}-\d{2}-\d{2}/g, '2026-11-26').replace('Status: draft', 'Status: building').replace('### S1: <title> [todo]', '### S1: Totals [doing]').replace(/Touch: .*/, 'Touch: `src/total.js`, `test/`').replace(/^Now: .*/m, 'Now: S1, totals.'));
-  writeFileSync(join(dir, 'docs/plans/totals/checks.json'), JSON.stringify({ version: 1, checks: [{ id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node --test test/total.accept.test.js', timeout_s: 30, fast: true, protects: ['test/total.accept.test.js'] }] }, null, 2) + '\n');
+  writeFileSync(join(dir, 'docs/plans/totals/checks.json'), JSON.stringify({ version: 1, checks: [{ id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node test/total.accept.test.js', timeout_s: 30, fast: true, protects: ['test/total.accept.test.js'] }] }, null, 2) + '\n');
   git('add', '-A'); git('commit', '-qm', 'plan: order totals');
   hook('session-start', { source: 'startup' });
 
