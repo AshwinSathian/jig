@@ -1,7 +1,7 @@
 # Fewer false asks (2.4.1)
 
 Status: shipped · Tier: brief · Baseline: ae0e226 · Updated: 2026-11-26
-Now: Done. 2.4.1 is in a PR.
+Now: Done. 2.4.1 released, then 2.4.2 for the security review's four findings.
 
 ## Outcome
 In auto mode a hook "ask" always becomes a prompt, so jig asks only when there is something to decide. `npm install 2>&1` and `npm i -w apps/web astro` no longer name `2>&1` or `apps/web` as packages, and a checks.json that's invalid in a field other than `protects` no longer asks before every edit in the repo.
@@ -33,3 +33,4 @@ Checks: `node --test test/quiet-asks.test.mjs`
 - 2026-11-26: Plan started at ae0e226.
 - 2026-11-26: Approved by agent; no gate applied (brief tier, no one-way doors). Cause found by counting jig's asks in local transcripts: 37 since 2.0.1 was installed, 36 of them in auto mode, made up of 16 invalid checks.json, 15 installs (13 false) and 6 protects (all correct).
 - 2026-11-26: S1 done. quiet-asks 8/8 (failed 3 of 3 before the fix), `npm test` 355/355, eslint clean. package.json's description now names review; it still said "Plan, verify and guard".
+- 2026-11-26: A security review of the 2.4.1 commit found four gaps, and all four were real: quoted-phrase stripping hid `bash -c "npm i x"`, generic `-F`/`-C` skips hid a package, reading only a segment's first line dropped continuation lines, and editing checks.json while invalid compared against the invalid file. 2.4.2 fixes each one with a test. It also removes the 2.4.1 assertion that a commit message mentioning an install stays quiet, because that behaviour was the first gap.

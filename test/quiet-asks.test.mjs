@@ -16,7 +16,6 @@ test('redirections, flag values, variables and quoted text are not package names
   assert.deepEqual(names('npm i -w apps/web astro'), ['astro']);
   assert.deepEqual(names('npm i --workspace=apps/web astro'), ['astro']);
   assert.deepEqual(names('pnpm add --filter web zod'), ['zod']);
-  assert.deepEqual(names('git commit -m "run npm install left-pad later"'), []);
   assert.deepEqual(names('npm i $PKG'), []);
 });
 
@@ -35,14 +34,24 @@ test('checks.json invalid in a field other than protects: only protected files a
   assert.equal(out.hookSpecificOutput.permissionDecision, 'ask', 'a protected file');
 });
 
-test('with checks.json invalid elsewhere, the plan-status freeze still asks, and a checks.json edit gets the freeze, not the blanket ask', () => {
+test('with checks.json invalid elsewhere, the plan-status freeze still asks, and a checks.json edit asks', () => {
   const { dir, planPath } = planRepo();
   const cj = join(dir, 'docs/plans/demo/checks.json');
   writeFileSync(cj, JSON.stringify({ version: 1, checks: [{ id: 'C1', slice: 'S1', kind: 'bogus', cmd: 'node -e ""', timeout_s: 10, protects: ['test/a.accept.test.js'] }] }));
   const out = hook('pre-edit', base(dir, { tool_name: 'Edit', tool_input: { file_path: planPath, old_string: 'Status: building', new_string: 'Status: draft' } }));
   assert.equal(out?.hookSpecificOutput?.permissionDecision, 'ask', 'status change');
   const fix = hook('pre-edit', base(dir, { tool_name: 'Write', tool_input: { file_path: cj, content: JSON.stringify({ version: 1, checks: [{ id: 'C1', slice: 'S1', kind: 'acceptance', cmd: 'node -e ""', timeout_s: 10, fast: true, protects: ['test/a.accept.test.js'] }] }) } }));
-  // Changing a frozen field (here `kind`) asks once through the freeze, by design;
-  // what it must not do is fall back to the blanket "can't tell" ask.
-  assert.doesNotMatch(fix?.hookSpecificOutput?.permissionDecisionReason ?? '', /can't tell whether/);
+  // While checks.json is invalid, an edit to it can't be compared with a
+  // trustworthy baseline, so it asks (fail closed), as it did before 2.4.1.
+  assert.equal(fix?.hookSpecificOutput?.permissionDecision, 'ask', 'checks.json edit');
+  assert.match(fix.hookSpecificOutput.permissionDecisionReason, /invalid/);
+});
+
+test('installs hidden in a shell -c string, behind a flag the tool lacks, or on a continuation line still ask', () => {
+  assert.deepEqual(names('bash -c "npm i evil-pkg"'), ['evil-pkg']);
+  assert.deepEqual(names("sh -c 'pip install evil-pkg'"), ['evil-pkg']);
+  assert.deepEqual(names('npm i -F evil-pkg'), ['evil-pkg'], 'npm has no -F');
+  assert.deepEqual(names('npm i -C evil-pkg'), ['evil-pkg'], 'npm has no -C');
+  assert.deepEqual(names('pip install -w evil-pkg'), ['evil-pkg'], 'pip -w is not a workspace');
+  assert.deepEqual(names('npm i \\\n  evil-pkg'), ['evil-pkg']);
 });

@@ -237,7 +237,9 @@ function guardEdit(input) {
     // `protects` still fails closed.
     const list = checks.data?.checks;
     const readable = !checks.error && Array.isArray(list) && list.every((c) => c && typeof c === 'object' && (c.protects === undefined || (Array.isArray(c.protects) && c.protects.every((x) => typeof x === 'string'))));
-    if (problems.length && !readable) {
+    // Editing checks.json while it's invalid has no trustworthy baseline to
+    // compare against, so that edit asks whatever `protects` says.
+    if (problems.length && (!readable || (checks.exists && sameFile(abs, checks.path)))) {
       return ask('protects', `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`);
     }
     if (sameFile(abs, path)) {
@@ -291,23 +293,31 @@ const INSTALLERS = [
 
 // Package names an install command would add. Lockfile installs (`npm ci`,
 // bare `npm install`, `pip install -r req.txt`, `pip install -e .`) add none.
-// Segments are split quote-aware, quoted text with spaces in it is dropped
-// (a commit message that mentions `npm install x`), and redirections such as
-// `2>&1` or `> out.log` are skipped: each of these used to ask for nothing.
-const TAKES_VALUE = ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '--registry', '-i', '--index-url', '-w', '--workspace', '--filter', '-F', '-C', '--dir', '--cwd'];
-const QUOTED_PHRASE = /(['"])(?:(?!\1).)*\s(?:(?!\1).)*\1/g;
+// Segments are split quote-aware, continuation lines are joined, and a
+// heredoc body is left out. Redirections (`2>&1`, `> out.log`) are skipped,
+// and so is the value of a flag the matched tool really takes (npm `-w`,
+// pnpm `--filter`): anything else is reported, so an unknown flag can't hide
+// a package. Quoted text is still read, so `bash -c "npm i x"` asks.
+const TAKES_VALUE = {
+  npm: ['-w', '--workspace', '--prefix', '--registry'],
+  pnpm: ['-F', '--filter', '-C', '--dir', '--registry'],
+  yarn: ['--cwd', '--registry'],
+  bun: ['--cwd', '--registry'],
+  pypi: ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '-i', '--index-url'],
+};
 export function installedPackages(command) {
   const found = [];
   for (const seg of shellSegments(command)) {
-    const line = seg.split('\n')[0].replace(QUOTED_PHRASE, ' ');
+    const line = seg.replace(/\\\n/g, ' ').split('\n')[0];
     for (const { re, eco } of INSTALLERS) {
       const m = line.match(re);
       if (!m) continue;
       const rest = m[m.length - 1] ?? '';
+      const takes = TAKES_VALUE[eco === 'npm' ? m[1] : eco] ?? [];
       const toks = rest.trim().split(/\s+/).filter(Boolean);
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
-        if (TAKES_VALUE.includes(t)) { i++; continue; }
+        if (takes.includes(t)) { i++; continue; }
         if (/^\d*[<>]/.test(t)) { if (/^\d*[<>]{1,2}&?$/.test(t)) i++; continue; }
         if (t.startsWith('-') || t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) continue;
         found.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
