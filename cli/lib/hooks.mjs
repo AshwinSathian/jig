@@ -232,7 +232,12 @@ function guardEdit(input) {
     // Fail closed on the one guard that protects files: if checks.json can't
     // be read or validated, we can't tell whether this file is protected.
     const problems = checks.exists ? (checks.error ? [checks.error] : validateChecks(checks.data)) : [];
-    if (problems.length) {
+    // A schema problem elsewhere (a bad `kind`) leaves `protects` readable, so
+    // the checks below still run and only a protected file asks. Unreadable
+    // `protects` still fails closed.
+    const list = checks.data?.checks;
+    const readable = !checks.error && Array.isArray(list) && list.every((c) => c && typeof c === 'object' && (c.protects === undefined || (Array.isArray(c.protects) && c.protects.every((x) => typeof x === 'string'))));
+    if (problems.length && !readable) {
       return ask('protects', `jig: ${relative(root, checks.path)} is invalid (${problems[0]}), so jig can't tell whether ${rel} is a protected acceptance test. Fix checks.json with \`jig lint\`.`);
     }
     if (sameFile(abs, path)) {
@@ -286,17 +291,24 @@ const INSTALLERS = [
 
 // Package names an install command would add. Lockfile installs (`npm ci`,
 // bare `npm install`, `pip install -r req.txt`, `pip install -e .`) add none.
+// Segments are split quote-aware, quoted text with spaces in it is dropped
+// (a commit message that mentions `npm install x`), and redirections such as
+// `2>&1` or `> out.log` are skipped: each of these used to ask for nothing.
+const TAKES_VALUE = ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '--registry', '-i', '--index-url', '-w', '--workspace', '--filter', '-F', '-C', '--dir', '--cwd'];
+const QUOTED_PHRASE = /(['"])(?:(?!\1).)*\s(?:(?!\1).)*\1/g;
 export function installedPackages(command) {
   const found = [];
-  for (const seg of command.split(/&&|\|\||;|\|/)) {
+  for (const seg of shellSegments(command)) {
+    const line = seg.split('\n')[0].replace(QUOTED_PHRASE, ' ');
     for (const { re, eco } of INSTALLERS) {
-      const m = seg.match(re);
+      const m = line.match(re);
       if (!m) continue;
       const rest = m[m.length - 1] ?? '';
       const toks = rest.trim().split(/\s+/).filter(Boolean);
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
-        if (['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '--registry', '-i', '--index-url'].includes(t)) { i++; continue; }
+        if (TAKES_VALUE.includes(t)) { i++; continue; }
+        if (/^\d*[<>]/.test(t)) { if (/^\d*[<>]{1,2}&?$/.test(t)) i++; continue; }
         if (t.startsWith('-') || t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) continue;
         found.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
       }

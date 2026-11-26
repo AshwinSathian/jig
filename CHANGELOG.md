@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.1 (2026-11-26)
+
+Fewer prompts in auto mode. A hook "ask" always becomes a prompt there, and most of jig's asks in recent sessions were for nothing.
+
+- **The install check no longer reads redirections or flag values as packages.** `npm install 2>&1 | tail -3` asked to add `2>&1`, and `npm i -w apps/web astro` asked about `apps/web`. Segments are now split quote-aware, quoted text with spaces in it is ignored, and `2>&1`, `> file`, `$VAR` and the values of `-w`, `--workspace`, `--filter`, `-C`, `--dir` and `--cwd` are skipped.
+- **An invalid checks.json no longer asks before every edit.** When the problem is in another field (a bad `kind`), the `protects` lists are still readable, so only protected files ask. When jig really can't read `protects`, it still fails closed.
+- package.json's description now includes review.
+
 ## 2.4.0 (2026-11-26)
 
 Post-build review. Plan, build, verify and review are now one loop, and review also works without a plan.
