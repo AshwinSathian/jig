@@ -32,3 +32,4 @@ Checks: `node --test test/install-skip-allowlist.test.mjs`, `npm test`
 ## Log
 - 2026-11-26: Plan started at 005fd92. Approved by agent; no gate applied (brief tier, no one-way doors).
 - 2026-11-26: Tests first: the allowlist and fingerprint tests failed before the fix (`read HOME <<< ...` and an XDG pip.conf were quiet); the plain cases already passed. S1 done: install-skip-allowlist 3/3 (7 subtests counted with the shared repo file), `npm test` 393/393, eslint clean, no existing test edited. The SETS denylist is deleted. Version 2.4.5.
+- 2026-11-26: The background review of the 2.4.5 commit found three more, all real and small: `cd -` (and any option-like target) and a set CDPATH, config files named by env vars weren't hashed, and `~/.config` was dropped when XDG_CONFIG_HOME pointed elsewhere. Fixed with one test covering all four cases (it failed before the fix). `npm test` 394/394, eslint clean.

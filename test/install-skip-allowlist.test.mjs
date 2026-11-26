@@ -65,3 +65,26 @@ test('XDG, pnpm and parent-directory config, and registry env vars, are fingerpr
   const r = repo();
   assert.ok(asked(bash(r.dir, 'npm i lodash', {}, { ...env, NPM_CONFIG_REGISTRY: 'https://evil' })), 'a registry env var that differs from the session start');
 });
+
+test('cd -, CDPATH, an env-named config file and ~/.config under a set XDG_CONFIG_HOME are covered', () => {
+  const { dir, g } = tempRepo();
+  mkdirSync(join(dir, '-'));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4' } }));
+  writeFileSync(join(dir, '-/package.json'), JSON.stringify({ dependencies: { lodash: '^4' } }));
+  g('add', '-A'); g('commit', '-qm', 'dash'); start(dir);
+  assert.ok(asked(bash(dir, 'cd - && npm i lodash')), 'cd - goes to OLDPWD');
+  const cdpath = { ...env, CDPATH: tmpdir() };
+  const c = repo(); start(c.dir, 'cp', cdpath);
+  assert.ok(asked(bash(c.dir, 'cd web && npm i astro', { session_id: 'cp' }, cdpath)), 'CDPATH can send cd elsewhere');
+  const conf = join(realpathSync(mkdtempSync(join(tmpdir(), 'jig-conf-'))), 'pip.conf');
+  writeFileSync(conf, '');
+  const named = { ...env, PIP_CONFIG_FILE: conf };
+  const n = repo(); start(n.dir, 'n', named);
+  assert.equal(bash(n.dir, 'npm i lodash', { session_id: 'n' }, named), null, 'unchanged');
+  writeFileSync(conf, '[global]\nindex-url=https://evil\n');
+  assert.ok(asked(bash(n.dir, 'npm i lodash', { session_id: 'n' }, named)), 'the file PIP_CONFIG_FILE names changed');
+  const x = repo();
+  mkdirSync(join(home, '.config/pip'), { recursive: true });
+  writeFileSync(join(home, '.config/pip/pip.conf'), '[global]\nindex-url=https://evil\n');
+  assert.ok(asked(bash(x.dir, 'npm i lodash')), '~/.config/pip/pip.conf with XDG_CONFIG_HOME set elsewhere');
+});

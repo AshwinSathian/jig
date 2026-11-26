@@ -450,9 +450,11 @@ function resolvesChanged(root, rev) {
 // grep) with plain arguments. Allowlist, not denylist: three reviews in a
 // row found a new spelling of shell state (`then export`, `read`,
 // `printf -v`) that a list of words missed.
-const CD = /^cd\s+([\w./-]+)$/;
+const CD = /^cd\s+([\w./][\w./-]*)$/;
 const FILTER = /^(?:tail|head|grep)(?:\s+(?:-[\w-]+|[\w.,:-]+|'[^'$`\\]*'|"[^"$`\\]*"))*$/;
 function segmentDirs(root, cwd, cmd) {
+  // CDPATH can send a relative cd outside the directory it names.
+  if (process.env.CDPATH) return null;
   let dir = cwd;
   const out = [];
   for (const seg of shellSegments(cmd)) {
@@ -474,7 +476,9 @@ function userConfig(root) {
   const xdg = process.env.XDG_CONFIG_HOME || join(h, '.config');
   const files = [
     ...['.npmrc', '.yarnrc', '.yarnrc.yml', '.bunfig.toml', '.pip/pip.conf', 'Library/Application Support/pip/pip.conf', 'Library/Preferences/pnpm/rc'].map((f) => join(h, f)),
-    ...['pip/pip.conf', 'pip/pip.ini', 'uv/uv.toml', 'pnpm/rc'].map((f) => join(xdg, f)),
+    ...[...new Set([xdg, join(h, '.config')])].flatMap((d) => ['pip/pip.conf', 'pip/pip.ini', 'uv/uv.toml', 'pnpm/rc'].map((f) => join(d, f))),
+    // Config files the environment names (PIP_CONFIG_FILE, NPM_CONFIG_USERCONFIG, ...).
+    ...Object.entries(process.env).filter(([k, v]) => /(?:CONFIG_FILE|USERCONFIG|GLOBALCONFIG|RC_FILENAME|_CONFIG)$/i.test(k) && v).map(([, v]) => v),
     '/etc/pip.conf', '/etc/xdg/pip/pip.conf', '/etc/uv/uv.toml', '/etc/npmrc',
     join(dirname(process.execPath), '..', 'etc', 'npmrc'),
     ...(process.env.VIRTUAL_ENV ? [join(process.env.VIRTUAL_ENV, 'pip.conf')] : []),
