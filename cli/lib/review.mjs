@@ -9,6 +9,7 @@ import { git, isCommit, stateDir } from './git.mjs';
 import { activePlans, doingSlice, plansDir } from './status.mjs';
 import { lastEvidence, workTree, readJsonl } from './verify.mjs';
 import { loadChecks } from './checks.mjs';
+import { section } from './plan.mjs';
 import { diagnose } from './doctor.mjs';
 
 const lines = (s) => (s ?? '').split('\n').filter(Boolean);
@@ -299,6 +300,21 @@ export function recordOutcome(root, id, outcome) {
   return { record: rec };
 }
 
+// The owner-approved intent for a blind first pass: Outcome (with Done
+// when), Decisions the owner decided, Out of scope, and the slice's Goal,
+// Touch and Checks. Never the Log or the Now line, which are the builder's
+// account of the work.
+export function planIntent(plan, sliceId) {
+  const body = (name) => (section(plan, name)?.body ?? []).map((l) => l.trimEnd()).filter((l) => l.trim());
+  const s = plan.slices.find((x) => x.id === sliceId) ?? null;
+  return {
+    outcome: body('Outcome'),
+    decisions: body('Decisions').filter((l) => /Decided:\s*owner\b/i.test(l)),
+    outOfScope: body('Out of scope'),
+    slice: s ? { id: s.id, title: s.title, goal: s.fields.goal?.value ?? null, touch: s.fields.touch?.value ?? null, checks: s.fields.checks?.value ?? null } : null,
+  };
+}
+
 // ---------- the brief ----------
 
 export function reviewBrief(root, opts = {}) {
@@ -315,6 +331,7 @@ export function reviewBrief(root, opts = {}) {
   const ev = lastEvidence(root);
   const rv = reviews(root).filter((r) => !r.kind && r.findings).pop() ?? null;
   const active = activePlans(root);
+  const mine = b.plan ? active.find(({ path }) => relative(root, path) === b.plan) : null;
   const checks = active.some(({ path }) => loadChecks(path).exists);
   const reviewText = git(root, ['show', `${b.base}:REVIEW.md`]);
   // What the review skill's gate runs when there is no checks.json (doctor D1, D7).
@@ -325,6 +342,7 @@ export function reviewBrief(root, opts = {}) {
     v: 1,
     base: b.base, head, how: b.how,
     ...(b.plan ? { plan: b.plan, slice: b.slice } : {}),
+    intent: mine ? planIntent(mine.plan, b.slice) : null,
     ...(b.branch ? { branch: b.branch } : {}),
     ...(b.pr ? { pr: b.pr } : {}),
     ...(b.fallback?.length ? { fallback: b.fallback } : {}),

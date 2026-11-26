@@ -2,7 +2,7 @@
 // without spending anything (test/reviewer-grade.test.mjs).
 
 const ITEM = /^(#+\s*)?(\*\*)?(\d+[.)]|[-*])(\*\*)?\s+\S/;
-const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary|checked\b|what holds|strengths)/i;
+const SECTION_END = /^\s*(\*\*)?(not checked|earlier findings|files|summary|checked\b|what holds|strengths|declined to judge|would miss)/i;
 
 // List items inside the "Findings" block (any common list form). When a
 // review has no Findings heading, every list item before a closing section
@@ -14,7 +14,11 @@ export function findings(text) {
   if (start === -1 && verdict(text) === 'ready') return [];
   if (start !== -1 && /findings\W*:?\W*(none|no findings)\b/i.test(lines[start])) return [];
   const out = [];
+  let fence = false;
   for (const l of lines.slice(start + 1)) {
+    // A code block in a fix is part of its finding, whatever its lines look like.
+    if (/^\s*```/.test(l)) { fence = !fence; continue; }
+    if (fence) continue;
     // A closing section, or a prose lead-in to another list ("I checked:").
     if (SECTION_END.test(l) || (/^[^\s#*\-\d].*:\s*$/.test(l) && !ITEM.test(l))) break;
     if (ITEM.test(l)) out.push(l);

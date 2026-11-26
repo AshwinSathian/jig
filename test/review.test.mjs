@@ -190,6 +190,23 @@ test('nothing to review: a clean tree on the default branch is an error that nam
   assert.match(reviewBrief(dir, {}).error, /nothing to review/);
 });
 
+test('the brief carries the owner-approved intent and the slice lines, never the Log or Now line', () => {
+  const { dir, g, planPath } = planRepo();
+  let text = readFileSync(planPath, 'utf8');
+  text = text.replace('Now: drafting.', 'Now: S1 doing; builder says all is fine.')
+    .replace(/## Decisions\n[\s\S]*?\n## Out of scope/, '## Decisions\n- [one-way] Keep ids stable. Reason: callers store them. Decided: owner 2026-11-25\n- Use a Map. Reason: faster.\n\n## Out of scope')
+    .replace(/## Log\n/, '## Log\n- 2026-11-25: builder narrative that must stay out of phase 1.\n');
+  writeFileSync(planPath, text); g('add', '-A'); g('commit', '-qm', 'plan text');
+  writeFileSync(join(dir, 'src/a.js'), 'export const a = 4;\n');
+  const { intent } = reviewBrief(dir, {});
+  const all = JSON.stringify(intent);
+  assert.match(all, /Keep ids stable/);
+  assert.ok(!/Use a Map/.test(all), 'only owner-decided Decisions');
+  assert.ok(!/builder narrative/.test(all) && !/builder says/.test(all), 'no Log or Now line');
+  assert.ok(intent.outcome.length && Array.isArray(intent.outOfScope));
+  assert.match(intent.slice.touch, /src\/a\.js/);
+});
+
 test('the brief has the tree fingerprint, stats, triggers and checks.json presence', () => {
   const { dir, g } = planRepo();
   const first = sha(dir);
