@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.2 (2026-11-26)
+
+Closes four gaps that 2.4.1's fixes opened in the install and protects gates. All four were found by a security review of the 2.4.1 commit.
+
+- **Quoted text is read again.** 2.4.1 ignored quoted phrases, so `bash -c "npm i x"` stopped asking. A commit message that mentions an install asks again, which is the safer of the two costs.
+- **A flag's value is skipped only for that tool's own flags:** npm `-w`, pnpm `--filter`, and so on. In 2.4.1, `npm i -F x` hid `x`.
+- **Continuation lines are joined before parsing.** In 2.4.1, `npm i \` followed by a package on the next line hid the package.
+- **Editing checks.json while it's invalid asks again.** There's no trustworthy baseline to compare that edit against. Other files still ask only if they're protected.
+
 ## 2.4.1 (2026-11-26)
 
 Fewer prompts in auto mode. A hook "ask" always becomes a prompt there, and most of jig's asks in recent sessions were for nothing.
