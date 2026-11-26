@@ -5,7 +5,7 @@
 // - append short context, and don't repeat it
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute, dirname, basename } from 'node:path';
-import { repoRoot, stateDir } from './git.mjs';
+import { repoRoot, stateDir, git, showHead } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
 import { evidence, workTree, readJsonl } from './verify.mjs';
@@ -327,6 +327,95 @@ export function installedPackages(command) {
   return found;
 }
 
+// An install of a name the repo already declares is no decision, so it
+// doesn't ask. Declared means in the committed manifest (HEAD), not the
+// working copy an Edit can change without asking, and only as a plain name
+// with a plain version: an alias (`x@npm:y`), URL, git ref or path asks, in
+// the command or in the manifest. Only local files are read.
+const NPM_CMD = /^((?:@[\w.-]+\/)?[\w.-]+)(?:@[\w.^~<>=*|+-]+)?$/;
+const NPM_RANGE = /^[\w.^~<>=*|+\s-]*$/;
+const PY_SPEC = String.raw`(?:===?|[<>!~]=?)\s*[\w.*+!-]+`;
+const PY = new RegExp(String.raw`^([A-Za-z0-9][\w.-]*)\s*(?:\[[\w,.\s-]*\])?\s*(?:${PY_SPEC}\s*(?:,\s*${PY_SPEC}\s*)*)?(?:;.*)?$`);
+const pyName = (s) => s.trim().match(PY)?.[1].toLowerCase().replace(/[-_.]+/g, '-') ?? null;
+
+function npmDeclared(text) {
+  let pkg;
+  try { pkg = JSON.parse(text); } catch { return []; }
+  return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((f) => {
+    const deps = pkg?.[f];
+    if (!deps || typeof deps !== 'object') return [];
+    return Object.entries(deps).filter(([, v]) => typeof v === 'string' && NPM_RANGE.test(v)).map(([k]) => k);
+  });
+}
+
+function requirementsDeclared(text) {
+  return text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, '').trim()).filter((l) => l && !l.startsWith('-')).map(pyName).filter(Boolean);
+}
+
+// The strings at the top level of the TOML array opening at s[i]: inline
+// tables inside it (`{include-group = "x"}`) are skipped.
+function tomlStrings(s, i) {
+  const out = []; let depth = 0; let brace = 0;
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if (c === '"' || c === "'") {
+      const end = s.indexOf(c, i + 1);
+      if (end === -1) return out;
+      if (depth === 1 && !brace) out.push(s.slice(i + 1, end));
+      i = end;
+    } else if (c === '#') { const nl = s.indexOf('\n', i); i = nl === -1 ? s.length : nl; }
+    else if (c === '{') brace++;
+    else if (c === '}') brace--;
+    else if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) return out;
+  }
+  return out;
+}
+
+// [project] dependencies and optional-dependencies, [dependency-groups], and
+// the keys of [tool.poetry.*dependencies] tables (not `python`).
+function pyprojectDeclared(text) {
+  const names = []; let section = '';
+  const re = /^[ \t]*(?:\[\[?\s*([^\]]+?)\s*\]\]?|([\w.-]+|"[^"]+")\s*=\s*(.*))/gm;
+  for (let m; (m = re.exec(text));) {
+    if (m[1] !== undefined) { section = m[1]; continue; }
+    const key = m[2].replace(/"/g, ''); const val = m[3];
+    const arrays = (section === 'project' && key === 'dependencies') || section === 'project.optional-dependencies' || section === 'dependency-groups';
+    if (arrays && val.startsWith('[')) names.push(...tomlStrings(text, m.index + m[0].length - val.length).map(pyName).filter(Boolean));
+    else if (/^tool\.poetry(?:\.group\.[\w-]+)?\.(?:dev-)?dependencies$/.test(section) && key !== 'python' && (/^["']/.test(val) || (val.startsWith('{') && !/\b(?:git|path|url|file)\s*=/.test(val)))) names.push(pyName(key));
+  }
+  return names.filter(Boolean);
+}
+
+// The names declared in the nearest directory (walking up from cwd to the
+// repo root) whose committed tree has the ecosystem's manifest.
+function declaredNames(root, cwd, eco) {
+  let rel = '';
+  try { rel = relative(root, realpathSync(cwd)); } catch { /* cwd gone: start at the root */ }
+  if (rel.startsWith('..') || isAbsolute(rel)) rel = '';
+  for (let dir = rel; ; dir = dirname(dir) === '.' ? '' : dirname(dir)) {
+    const listed = git(root, ['ls-tree', '--name-only', 'HEAD', ...(dir ? ['--', `${dir}/`] : [])]);
+    const files = (listed ?? '').split('\n').filter(Boolean).map((f) => basename(f));
+    const at = (f) => showHead(root, dir ? `${dir}/${f}` : f) ?? '';
+    if (eco === 'npm' && files.includes('package.json')) return new Set(npmDeclared(at('package.json')));
+    const reqs = files.filter((f) => /^requirements.*\.txt$/.test(f));
+    if (eco === 'pypi' && (reqs.length || files.includes('pyproject.toml'))) {
+      return new Set([...reqs.flatMap((f) => requirementsDeclared(at(f))), ...(files.includes('pyproject.toml') ? pyprojectDeclared(at('pyproject.toml')) : [])]);
+    }
+    if (!dir) return new Set();
+  }
+}
+
+const OTHER_SOURCE = /--registry|--(?:extra-)?index(?:-url)?\b|--default-index|--find-links|--source\b|(?:^|\s)-[if]\b|npm_config_|\b(?:PIP|UV)_(?:INDEX|EXTRA_INDEX|DEFAULT_INDEX|FIND_LINKS)/i;
+
+function isDeclared(root, cwd, p, cache) {
+  if (p.eco !== 'npm' && p.eco !== 'pypi') return false;
+  const name = p.eco === 'npm' ? p.name.match(NPM_CMD)?.[1] : pyName(p.name);
+  if (!name) return false;
+  if (!cache[p.eco]) cache[p.eco] = declaredNames(root, cwd, p.eco);
+  return cache[p.eco].has(name);
+}
+
 // A command split at unquoted ;, &&, ||, | and newlines. A heredoc body
 // stays with the segment that opened it, so its lines aren't commands.
 export function shellSegments(cmd) {
@@ -433,7 +522,10 @@ export function preBash(input) {
   const cmd = input.tool_input?.command ?? '';
   const root = rootOf(input);
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
-  const pkgs = installedPackages(cmd);
+  const cache = {};
+  // A declared name fetched from another registry or index is a new package.
+  const elsewhere = OTHER_SOURCE.test(cmd);
+  const pkgs = installedPackages(cmd).filter((p) => elsewhere || !isDeclared(root, input.cwd ?? root, p, cache));
   if (!pkgs.length) {
     const seg = commitSegment(cmd);
     return seg ? commitGate(input, root, seg) : null;

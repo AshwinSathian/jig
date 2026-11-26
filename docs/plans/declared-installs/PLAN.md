@@ -1,0 +1,45 @@
+# Declared installs don't ask, and jig observe
+
+Status: building · Tier: brief · Baseline: 7c0e77f · Updated: 2026-11-26
+Now: S1 done. Next: S2 (jig observe, 2.4.3).
+
+## Outcome
+Installing a package the repo already declares (`npm i vitest` when the committed package.json lists vitest) no longer asks. Protects, freeze, rules and gate-switch asks are unchanged. `jig observe` prints what observe.jsonl holds: counts by gate and decision, the date range and the top reasons, so the owner can decide on enforcement.
+Done when:
+- `node --test test/declared-installs.test.mjs` passes, and each behaviour's test failed before its code
+- `npm test` passes, with no existing test edited
+
+## Decisions
+- "Declared" means declared in the committed file (`git show HEAD:<path>`), not the working copy. Reason: an agent can edit package.json and then install; that new name is exactly the decision the ask is for. Rejected: the working copy, which an Edit can change without asking.
+- The rule applies in every permission mode, so the hook doesn't read `permission_mode`. Reason: a name the repo already declares is no decision in any mode, and one rule is less to test. Rejected: skipping only in auto mode.
+- Only plain names count: npm `name` or `name@<version range>`, pip `name`, `name[extra]` or `name<specifier>`. An alias (`x@npm:y`), URL, git ref, path or tarball asks even when its name is declared. Reason: `lodash@npm:evil` installs evil under a declared name.
+- Files read: the nearest package.json (dependencies, devDependencies, optionalDependencies, peerDependencies) for npm, pnpm, yarn and bun; for pip, uv and poetry, the requirements*.txt files and pyproject.toml in the nearest directory that has any of them ([project] dependencies and optional-dependencies, [dependency-groups], [tool.poetry.*dependencies] keys). "Nearest" walks up from the hook's cwd to the repo root. A file that can't be read or parsed declares nothing, so the install asks. Reason: these are the files the spec names, read locally, with no network request.
+- Other ecosystems (cargo, go, gem, composer) keep asking. Reason: no transcript asks came from them.
+- `jig observe` groups reasons after replacing hex ids of 7+ characters with `<id>`. Reason: one gate's asks at different trees are one reason, not many. Plain text only.
+
+## Out of scope
+- Bare `npm install` after an edit to package.json already installs a new name without asking (lockfile installs add no names). Unchanged here; noted for the owner.
+
+## Questions
+- None.
+
+## Assumptions
+- The owner's spec covers names declared in any of the four package.json fields, including peerDependencies.
+
+## Slices
+
+### S1: Declared installs don't ask [done]
+Goal: an install whose every package is declared at HEAD returns nothing; one undeclared or non-plain package still asks and names only those.
+Touch: `cli/lib/hooks.mjs`, `test/declared-installs.test.mjs (new)`
+Checks: `node --test test/declared-installs.test.mjs`
+- Risk: a parsing shortcut counts something that isn't a dependency (pyproject's `name = "x"`, a `python` key). Detect: tests with those decoys. Fallback: narrow to the arrays and tables named in Decisions.
+
+### S2: jig observe, and release 2.4.3 [todo]
+Goal: `jig observe` summarises .git/jig/observe.jsonl; version 2.4.3 everywhere; CHANGELOG and README say what changed.
+Touch: `cli/jig.mjs`, `cli/lib/observe.mjs (new)`, `test/declared-installs.test.mjs (new)`, `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`, `README.md`
+Checks: `node --test test/declared-installs.test.mjs`, `npm test`
+
+## Log
+- 2026-11-26: Plan started at 7c0e77f.
+- 2026-11-26: Approved by agent; no gate applied (brief tier, no one-way doors, no open questions).
+- 2026-11-26: S1 done. declared-installs 13/13 (the four declared-name tests and the other-registry test failed before their code), `npm test` 369/369, eslint clean, no existing test edited. An install skips the ask only when every name is plain and declared in the nearest committed manifest; a flag or env var that points at another registry or index (`--registry`, `-i`, `--index-url`, `--find-links`, `--source`, `npm_config_*`, `PIP_INDEX_URL`) asks, since a declared name from elsewhere is a new package. Added to the Decisions' list of what asks: other registries.
