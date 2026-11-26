@@ -177,7 +177,8 @@ test('an added line that opens a comment, triple quote or template is a signal; 
   const body = (lines) => writeFileSync(join(dir, 'test/b.test.js'), ["import assert from 'node:assert';", "test('adds', () => {", '  assert.equal(add(1, 2), 3);', ...lines, '});', ''].join('\n'));
   for (const [opener, why] of [['  /*', 'block comment'], ['  const x = this.#a; /*', 'mid-line block comment'], ['  const f = `', 'template literal'], ["  '''", 'triple quote']]) {
     body([opener, '  assert.equal(add(-1, 1), 0);', '  */']);
-    assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['comment-opened test/b.test.js:4'], why);
+    const k = kinds(reviewBrief(dir, { base: start }));
+    assert.ok(k.includes('comment-opened test/b.test.js:4') && !k.some((x) => x.startsWith('assertion-removed')), `${why}: ${k.join(', ')}`);
   }
   body(["  const glob = '**/*.js';", '  assert.equal(add(-1, 1), 0);']);
   assert.ok(!kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('assertion-removed')), 'a glob string hides nothing');
@@ -189,4 +190,19 @@ test('an added line that opens a comment, triple quote or template is a signal; 
   assert.deepEqual(kinds(reviewBrief(r.dir, { base: uStart })), ['assertion-removed test/u.test.js:2'], 'an edited assertion');
   writeFileSync(join(dir, 'test/b.test.js'), Buffer.from([0, 1, 2, 0, 255]));
   assert.ok(kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('test-binary test/b.test.js')));
+});
+
+test('a removed closer, an escaped backtick and Ruby or heredoc openers are signals too', () => {
+  const { dir, g } = repo();
+  writeFileSync(join(dir, 'test/b.test.js'), "test('adds', () => {\n  /* old note\n  */\n  assert.equal(add(1, 2), 3);\n});\n");
+  g('add', '-A'); g('commit', '-qm', 'note');
+  const start = sha(dir);
+  writeFileSync(join(dir, 'test/b.test.js'), "test('adds', () => {\n  /* old note\n  assert.equal(add(1, 2), 3);\n});\n");
+  assert.ok(kinds(reviewBrief(dir, { base: start })).includes('comment-opened test/b.test.js:3'), 'a removed */');
+  const r = repo();
+  writeFileSync(join(r.dir, 'test/r_test.rb'), '=begin\nassert_equal 1, 1\n');
+  writeFileSync(join(r.dir, 'test/h_test.rb'), 'x = <<~EOS\nassert_equal 1, 1\n');
+  writeFileSync(join(r.dir, 'test/e.test.js'), 'const s = `a \\` b`; const t = `\n');
+  const k = kinds(reviewBrief(r.dir, { base: r.start }));
+  for (const want of ['comment-opened test/r_test.rb:1', 'comment-opened test/h_test.rb:1', 'comment-opened test/e.test.js:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
 });
