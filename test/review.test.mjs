@@ -149,6 +149,41 @@ test('a path with spaces or non-ASCII characters keeps its name and lines', () =
   const files = diffFiles(dir, first);
   assert.deepEqual(files.map((x) => x.path).sort(), ['a b.js', 'café.js']);
   assert.deepEqual(files.find((x) => x.path === 'café.js').added, ['two']);
+  assert.deepEqual(files.find((x) => x.path === 'a b.js').added, ['one']);
+});
+
+test('diff lines are read whatever the user sets for diff prefixes', () => {
+  const { dir, g } = tempRepo();
+  const first = sha(dir);
+  writeFileSync(join(dir, 'c.js'), 'three\n');
+  commit(g, 'c');
+  for (const [k, v] of [['diff.noprefix', 'true'], ['diff.mnemonicPrefix', 'true']]) {
+    g('config', k, v);
+    assert.deepEqual(diffFiles(dir, first).find((x) => x.path === 'c.js').added, ['three'], k);
+    g('config', '--unset', k);
+  }
+});
+
+test('REVIEW.md glob triggers match paths', () => {
+  const { dir, g } = tempRepo();
+  g('branch', '-M', 'main');
+  writeFileSync(join(dir, 'REVIEW.md'), '- When: `src/**/*.js` · Check: a · Source: one\n- When: `src/*.css` · Check: b · Source: two\n');
+  commit(g, 'rm');
+  g('switch', '-qc', 'f');
+  mkdirSync(join(dir, 'src/deep'), { recursive: true });
+  writeFileSync(join(dir, 'src/deep/c.js'), 'x\n');
+  commit(g, 'c');
+  const b = reviewBrief(dir, {});
+  assert.deepEqual(b.reviewMd.matched.map((e) => e.source), ['one']);
+});
+
+test('--base still carries the intent of the single plan with a doing slice', () => {
+  const { dir, g } = planRepo();
+  const first = sha(dir);
+  writeFileSync(join(dir, 'src/a.js'), 'export const a = 5;\n'); commit(g, 'x');
+  const b = reviewBrief(dir, { base: first });
+  assert.equal(b.how, 'flag');
+  assert.ok(b.intent?.slice, JSON.stringify(b.intent));
 });
 
 test('an untracked symlink or FIFO is listed but never read', () => {

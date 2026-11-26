@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { triggersFor } from '../cli/lib/review.mjs';
 
-const f = (path, added = [], extra = {}) => ({ path, added, removed: extra.removed ?? [], adds: extra.adds ?? Math.max(added.length, 1), dels: extra.dels ?? 0 });
+const f = (path, added = [], extra = {}) => ({ path, added, removed: extra.removed ?? [], adds: extra.adds ?? Math.max(added.length, 1), dels: extra.dels ?? 0, ...(extra.binary ? { binary: true } : {}) });
 const ids = (files, opts) => triggersFor(files, { plansDir: 'docs/plans', ...opts }).map((t) => t.id).sort();
 const has = (files, id) => ids(files).includes(id);
 
@@ -27,8 +27,10 @@ const CASES = {
       f('src/files.js', ['const p = path.join(root, req.params.name);']),
       f('src/token.js', ["crypto.createHash('md5')"]),
       f('src/billing/invoice.ts'),
+      f('src/routes.js', [], { removed: ["  if (!user || !user.isAdmin) throw new Error('forbidden');"] }),
+      f('src/handlers/admin.js'),
     ],
-    no: [f('docs/auth.md'), f('src/blockquote.js', ['const blocked = true;']), f('src/author.js', ['export const authorName = "x";']), f('src/sum.js', ['const total = a + b;']), f('src/re.js', ['const m = /x(\\d+)/.exec(s);']), f('src/draw.js', ['const x = Math.random() * width;']), f('src/lexer/token.ts'), f('src/parser/tokens.js'), f('test/run.test.mjs', ["f('src/run.js', ['execSync(`git ${args}`)'])"])],
+    no: [f('docs/auth.md'), f('src/blockquote.js', ['const blocked = true;']), f('src/author.js', ['export const authorName = "x";']), f('src/sum.js', ['const total = a + b;']), f('src/re.js', ['const m = /x(\\d+)/.exec(s);']), f('src/draw.js', ['const x = Math.random() * width;']), f('src/lexer/token.ts'), f('src/parser/tokens.js'), f('docs/plan/evidence/run20/after/sessions-1440-dark.png', [], { binary: true }), f('assets/auth-hero.svg'), f('src/administrative-units.js'), f('src/role-play.js', [], { removed: ['const x = 1;'] }), f('test/run.test.mjs', ["f('src/run.js', ['execSync(`git ${args}`)'])"])],
   },
   invariants: {
     yes: [f('src/w.js', ["const w = new Worker('w.js');"]), f('src/queue.js', ['await db.transaction(async (tx) => {']), f('src/cache.ts', ['cache.invalidate(key);']), f('src/parser/csv.js')],

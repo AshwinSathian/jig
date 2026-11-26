@@ -379,24 +379,31 @@ function commitGate(input, root, seg) {
   const plans = activePlans(root);
   const reviewRecs = readJsonl(root, 'reviews.jsonl');
   const used = plans.some(({ path }) => loadChecks(path).exists) || reviewRecs.length > 0;
-  // A slice the builder stopped as Blocked may commit its work in progress.
-  if (!used || plans.some(({ plan }) => doingSlice(plan) && blockedReason(plan))) return null;
+  // A Blocked slice may commit its work in progress, but only when every
+  // plan being built is blocked: one blocked plan doesn't excuse another.
+  const building = plans.filter(({ path, plan }) => doingSlice(plan) && loadChecks(path).exists);
+  if (!used || (building.length && building.every(({ plan }) => blockedReason(plan)))) return null;
   const msg = commitMessage(seg, input.cwd ?? root);
   if (msg?.none) return null;
   const tree = workTree(root);
   if (!tree) return null;
   const passed = (r) => (r.results ?? []).length > 0 && r.results.every((x) => x.pass);
-  if (evidence(root).some((r) => r.tree === tree && passed(r)) || reviewRecs.some((r) => !r.kind && r.tree === tree)) return null;
+  // Only a passing record is cover: a fix-first review at this tree is not.
+  if (evidence(root).some((r) => r.tree === tree && passed(r)) || reviewRecs.some((r) => !r.kind && r.tree === tree && r.verdict === 'ready')) return null;
   const why = `jig: this commit's tree (${tree.slice(0, 7)}) has no current passing evidence or review record`;
   const fix = 'Run `jig verify --record` or jig:review first, or say in the message why nothing was verified.';
   // No message flag: the message can't be read, so this is only logged.
   if (!msg) { observe(input, 'pre-bash', 'commit', ask('commit', `${why}, and it has no message flag (message unknown: an editor will open or a message is reused). Logged only.`)); return null; }
-  const st = sessionState(root, input);
-  // A gate that keeps firing gets switched off: two per session, then it lets go.
-  const fired = st.data.commitFired ?? 0;
-  if (fired >= 2) return null;
-  st.data.commitFired = fired + 1;
-  st.save();
+  // A gate that keeps firing gets switched off: when it enforces, two per
+  // session, then it lets go. Observed, every fire is logged, so the count
+  // the owner decides from is complete.
+  if (!observed('commit')) {
+    const st = sessionState(root, input);
+    const fired = st.data.commitFired ?? 0;
+    if (fired >= 2) return null;
+    st.data.commitFired = fired + 1;
+    st.save();
+  }
   return ask('commit', `${why}, and its message has no "Verified: none (<reason>)" line. ${fix}`);
 }
 

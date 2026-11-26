@@ -11,6 +11,7 @@ import { lastEvidence, workTree, readJsonl } from './verify.mjs';
 import { loadChecks } from './checks.mjs';
 import { section } from './plan.mjs';
 import { diagnose } from './doctor.mjs';
+import { pathMatches } from './hooks.mjs';
 
 const lines = (s) => (s ?? '').split('\n').filter(Boolean);
 const full = (root, ref) => git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])?.trim() || null;
@@ -97,7 +98,9 @@ export function diffFiles(root, base, head = null) {
   const range = head ? [base, head] : [base];
   const q = ['-c', 'core.quotePath=false'];
   const stat = git(root, [...q, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', '--numstat', '-z', ...range, '--']);
-  const patch = git(root, [...q, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', '-U0', '--no-color', ...range, '--']);
+  // Prefixes pinned: the user's diff.noprefix or diff.mnemonicPrefix would
+  // otherwise change the header paths this parser reads.
+  const patch = git(root, [...q, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '-U0', '--no-color', ...range, '--']);
   if (stat === null || patch === null) throw new Error(`git diff ${range.join(' ')} failed`);
   const files = new Map();
   for (const rec of stat.split('\0').filter(Boolean)) {
@@ -109,8 +112,9 @@ export function diffFiles(root, base, head = null) {
   let cur = null; let from = null; let inHunk = false;
   for (const l of patch.split('\n')) {
     if (l.startsWith('diff --git ')) { cur = null; from = null; inHunk = false; continue; }
-    if (!inHunk && l.startsWith('--- ')) { from = l === '--- /dev/null' ? null : l.replace(/^--- a\//, ''); continue; }
-    if (!inHunk && l.startsWith('+++ ')) { cur = files.get(l === '+++ /dev/null' ? from : l.replace(/^\+\+\+ b\//, '')) ?? null; continue; }
+    // git ends a header with a tab when the path has a space.
+    if (!inHunk && l.startsWith('--- ')) { from = l === '--- /dev/null' ? null : l.replace(/^--- a\//, '').replace(/\t$/, ''); continue; }
+    if (!inHunk && l.startsWith('+++ ')) { cur = files.get(l === '+++ /dev/null' ? from : l.replace(/^\+\+\+ b\//, '').replace(/\t$/, '')) ?? null; continue; }
     if (l.startsWith('@@')) { inHunk = true; continue; }
     if (!inHunk || !cur) continue;
     if (l.startsWith('+')) cur.added.push(l.slice(1));
@@ -138,6 +142,9 @@ const ext = (p) => (p.match(/\.([^./]+)$/)?.[1] ?? '').toLowerCase();
 // No .txt: requirements.txt and CMakeLists.txt are code, not prose.
 const DOC_EXT = new Set(['md', 'mdx', 'rst', 'adoc']);
 const isDoc = (p) => DOC_EXT.has(ext(p));
+// Images, fonts and other media: their names say nothing about what code does.
+const MEDIA = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'avif', 'bmp', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'woff', 'woff2', 'ttf', 'otf', 'pdf']);
+const isMedia = (f) => f.binary || MEDIA.has(ext(f.path));
 const isTest = (p) => /(^|\/)(test|tests|__tests__|spec|e2e)\//i.test(p) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p) || /_test\.(go|py|rb)$/.test(p) || /(^|\/)test_[^/]*\.py$/.test(p);
 // Line-content rules read source code only: a test's fixture strings would
 // trigger them for every test that mentions what it tests.
@@ -152,9 +159,9 @@ export const TRIGGERS = [
   {
     id: 'security', partner: 'owasp-security',
     // `token` under a lexer or parser is a lexical token, not a credential.
-    match: (f) => !isDoc(f.path) && (
-      !(/(^|\/)(lexer|lexers|parser|parsers|tokeniz\w*)\//i.test(f.path) && /(^|\/)tokens?\.\w+$/i.test(f.path)) && /(^|[/_.-])(auth|authn|authz|authenticat\w*|authoriz\w*|login|logout|session|sessions|token|tokens|oauth|jwt|password|passwd|secret|secrets|crypto|permission|permissions|acl|rbac|payment|payments|billing|invoice|invoices|money|wallet|checkout)([/_.-]|$)/i.test(f.path)
-      || code(f) && f.added.some((l) => SECURITY_LINE.test(l))),
+    match: (f) => !isDoc(f.path) && !isMedia(f) && (
+      !(/(^|\/)(lexer|lexers|parser|parsers|tokeniz\w*)\//i.test(f.path) && /(^|\/)tokens?\.\w+$/i.test(f.path)) && /(^|[/_.-])(auth|authn|authz|authenticat\w*|authoriz\w*|login|logout|session|sessions|token|tokens|oauth|jwt|password|passwd|secret|secrets|crypto|permission|permissions|acl|rbac|admin|payment|payments|billing|invoice|invoices|money|wallet|checkout)([/_.-]|$)/i.test(f.path)
+      || code(f) && (f.added.some((l) => SECURITY_LINE.test(l)) || f.removed.some((l) => AUTH_CHECK.test(l)))),
   },
   {
     id: 'invariants', partner: null,
@@ -187,6 +194,10 @@ const SECURITY_LINE = new RegExp([
   String.raw`createHash\(\s*['"](md5|sha1)['"]|createCipher\(|Math\.random\(\).*\b(token|secret|id|nonce|salt)\b|crypto\.subtle|jwt\.(sign|verify|decode)`,
   String.raw`dangerouslySetInnerHTML|innerHTML\s*=`,
 ].join('|'), 'i');
+
+// A removed line that checked who may do something: deleting an auth check
+// is a security change even when nothing security-shaped is added.
+const AUTH_CHECK = /\b(isAdmin|isOwner|isAuthenticated|requireAuth\w*|authoriz\w*|authenticat\w*|checkPermission\w*|hasPermission\w*|hasRole|can\(|forbidden|unauthori[sz]ed|csrf|verifyToken|jwt\.verify)/i;
 
 // Small, docs-only, and nothing else matched.
 const TRIVIAL_LINES = 20;
@@ -224,7 +235,7 @@ export function reviewMdEntries(text, files) {
     const toks = [...m[1].matchAll(/`([^`]+)`/g)].map((x) => x[1]);
     if (!toks.length) toks.push(...(m[1].match(/[\w.-]*\/[\w./*-]*|\b[\w-]+\.[a-z]{1,5}\b/g) ?? []));
     if (!toks.length) { judge.push(e); continue; }
-    const hit = files.filter((f) => toks.some((t) => f.path.includes(t.replace(/\*+/g, '')) || f.added.some((a) => a.includes(t))));
+    const hit = files.filter((f) => toks.some((t) => (/[*?]/.test(t) ? pathMatches(f.path, t) : f.path.includes(t) || f.added.some((a) => a.includes(t)))));
     if (hit.length) matched.push({ ...e, files: hit.map((f) => f.path) });
   }
   return { matched, judge };
@@ -334,7 +345,10 @@ export function reviewBrief(root, opts = {}) {
   // the last reviewed head, with the earlier findings.
   const round = all.filter((r) => r.base === b.base).length + 1;
   const active = activePlans(root);
-  const mine = b.plan ? active.find(({ path }) => relative(root, path) === b.plan) : null;
+  // The plan whose intent the blind pass reads: the one the base came from,
+  // or with --base or --pr, the single plan with a doing slice.
+  const doingPlans = active.filter(({ plan }) => doingSlice(plan));
+  const mine = b.plan ? active.find(({ path }) => relative(root, path) === b.plan) : doingPlans.length === 1 ? doingPlans[0] : null;
   const checks = active.some(({ path }) => loadChecks(path).exists);
   const reviewText = git(root, ['show', `${b.base}:REVIEW.md`]);
   // What the review skill's gate runs when there is no checks.json (doctor D1, D7).
@@ -345,7 +359,7 @@ export function reviewBrief(root, opts = {}) {
     v: 1,
     base: b.base, head, how: b.how,
     ...(b.plan ? { plan: b.plan, slice: b.slice } : {}),
-    intent: mine ? planIntent(mine.plan, b.slice) : null,
+    intent: mine ? planIntent(mine.plan, b.slice ?? doingSlice(mine.plan)?.id) : null,
     ...(b.branch ? { branch: b.branch } : {}),
     ...(b.pr ? { pr: b.pr } : {}),
     ...(b.fallback?.length ? { fallback: b.fallback } : {}),

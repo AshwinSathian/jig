@@ -33,7 +33,7 @@ console.log(`stop hook p50 ${p50} ms, max ${Math.round(ms[ms.length - 1])} ms, m
 if (tree === 'null') { console.error('no tree id: not a git repo, or git failed'); process.exit(1); }
 
 // A new session id per run: the gate lets go after two fires in one session,
-// which would time the cheap path. The gate logs to the repo's real
+// as it would when enforcing, so each run takes the full path. The gate logs to the repo's real
 // observe.jsonl, which the owner reads to decide whether it enforces, so
 // that file and the session files are put back afterwards.
 const state = join(execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: repo, encoding: 'utf8' }).trim(), 'jig');

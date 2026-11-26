@@ -11,6 +11,7 @@ import { hook, planRepo, base } from './helpers.mjs';
 import { tempRepo } from './verify.test.mjs';
 import { verifyPlan } from '../cli/lib/verify.mjs';
 import { reviewBrief, recordReview } from '../cli/lib/review.mjs';
+import { newPlan } from '../cli/lib/scaffold.mjs';
 
 const gitDir = (dir) => execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: dir, encoding: 'utf8' }).trim();
 const logged = (dir) => {
@@ -51,6 +52,21 @@ test('current evidence or a current review record lets the commit through', () =
   const b = reviewBrief(s.dir, {});
   recordReview(s.dir, { base: b.base, head: b.head, tree: b.tree, verdict: 'ready', findings: [] });
   assert.equal(bash(s.dir, 'git commit -qam x', ENFORCE), null, 'review');
+});
+
+test('only a ready review is cover: fix first or rethink at this tree is not', () => {
+  for (const verdict of ['fix first', 'rethink']) {
+    const s = edited();
+    const b = reviewBrief(s.dir, {});
+    recordReview(s.dir, { base: b.base, head: b.head, tree: b.tree, verdict, findings: [{ severity: 'Important', confidence: 'Confirmed', file: 'src/a.js', line: 1, class: 'x', title: 'y' }] });
+    assert.ok(bash(s.dir, 'git commit -qam x', ENFORCE), verdict);
+  }
+});
+
+test('observed, every fire is logged: the two-per-session cap applies only when it enforces', () => {
+  const { dir } = edited();
+  for (let i = 0; i < 4; i++) bash(dir, 'git commit -qam x', {}, { session: 'obs' });
+  assert.equal(logged(dir).length, 4);
 });
 
 test('evidence for an earlier tree does not count', () => {
@@ -133,6 +149,15 @@ test('a repo where jig has no active plan and no reviews is left alone', () => {
   writeFileSync(join(dir, 'README.md'), 'changed\n');
   assert.equal(bash(dir, 'git commit -qam x', ENFORCE), null);
   assert.equal(logged(dir).length, 0);
+});
+
+test('one Blocked plan does not exempt commits while another plan is being built', () => {
+  const r = edited();
+  appendFileSync(r.planPath, '- 2026-11-26: Blocked: C1 needs a service this sandbox lacks\n');
+  const [p2] = newPlan(r.dir, 'other', { tier: 'full', title: 'Other' });
+  writeFileSync(p2, readFileSync(p2, 'utf8').replace('Status: draft', 'Status: building').replace('### S1: <title> [todo]', '### S1: Other [doing]').replace(/Touch: .*/, 'Touch: `src/`'));
+  writeFileSync(join(r.dir, 'docs/plans/other/checks.json'), JSON.stringify({ version: 1, checks: [{ id: 'O1', slice: 'S1', kind: 'acceptance', cmd: 'node -e ""', timeout_s: 10, fast: true }] }));
+  assert.ok(bash(r.dir, 'git commit -qam x', ENFORCE));
 });
 
 test('a Blocked plan with a doing slice lets the commit through; one with no doing slice does not', () => {

@@ -56,7 +56,7 @@ Read only:
 - the diff: `git diff <base> [<head>]`, plus untracked files the brief lists
 - the repo, to follow callers, tests and conventions
 
-Don't read yet: PLAN.md itself, commit messages (`git log`, or `git show` of a commit), the PR description, any summary the builder wrote, or the brief's `review` field (an earlier verdict). That's the builder's account of the work, or an earlier opinion, and reading it first anchors you on it. When the spec is silent about some behaviour, that isn't permission: judge it by what a reasonable user of this code would expect.
+To see what changed, use `git diff --stat <base> [<head>]` or the brief's `files`, never `git log`, which prints the commit messages. Don't read yet: PLAN.md itself, commit messages (`git log`, or `git show` of a commit), the PR description, any summary the builder wrote, or the brief's `review` field (an earlier verdict). That's the builder's account of the work, or an earlier opinion, and reading it first anchors you on it. When the spec is silent about some behaviour, that isn't permission: judge it by what a reasonable user of this code would expect.
 
 Check:
 1. **Scope.** Compare the files changed with the slice's `Touch:` list, or with the request.
