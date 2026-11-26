@@ -1,7 +1,7 @@
 # Installs always ask (2.4.6)
 
-Status: building · Tier: brief · Baseline: 9132f31 · Updated: 2026-11-26
-Now: S1 done. Next: owner merge and the 2.4.6 release.
+Status: shipped · Tier: brief · Baseline: 9132f31 · Updated: 2026-11-26
+Now: shipped as 2.4.6 (PR #14).
 
 ## Outcome
 Every install that names a package asks, declared or not, and installer spellings that skipped the ask are read. Owner's call on 2026-11-26, after the review of efe8015 found five more gaps in the token allowlist that this plan first built.
@@ -39,3 +39,4 @@ Checks: C1, R1
 - 2026-11-26 17:37: jig verify: C1 pass; R1 pass. checks changed since the last record: R1 (timeout_s)
 - 2026-11-26: The background security review of efe8015 found five more gaps, and I reproduced four of them on efe8015. Config in an ignored directory (`node_modules/x/.npmrc`, `build/pyproject.toml`) or in a parent directory wasn't seen. npm's builtin npmrc wasn't hashed. `2>0001_initial.py` overwrites a repo file. And `npm in`, `npm -g i`, `npm --registry=... i`, `yarn global add`, `npx` and others never asked at all. Asked to choose, the owner dropped the skip: every install that names a package asks, and detection is wider. With that yes, the four skip test files (declared-installs, install-skip-hardening, install-skip-allowlist and install-skip-tokens, all asserting that declared installs stay quiet) are deleted (outside Touch, so they're named here). test/installs-ask.test.mjs replaces them, and it failed on efe8015's code (`npm i react` was quiet, `npm in leftpad-xyz` found nothing). C1 now runs that file. SessionStart still records `startHead` (the review's transcript check reads it) but no longer fingerprints user config. README's `install` gate line and the 2.4.6 CHANGELOG entry are rewritten. `npm test` 362/362 and eslint clean.
 - 2026-11-26 19:00: jig verify: C1 pass; R1 pass. checks changed since the last record: C1 (cmd, protects -test/install-skip-tokens.test.mjs)
+- 2026-11-26: Shipped. The owner merged PR #14 (4e9ff58). v2.4.6 was released by the agent on the owner's yes. publish.yml passed, `npm view jig-plan versions` listed 2.4.6 after about 270 s, and `npm audit signatures` after `npm i jig-plan@2.4.6` reports 1 verified attestation. The background security review of ad6d777, the final commit, didn't report before the merge.

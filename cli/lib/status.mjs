@@ -6,14 +6,20 @@ const ACTIVE = ['approved', 'building'];
 
 // Where this repo keeps plans. `.jig.json` {"plansDir": "..."} wins; else an
 // existing docs/plans/ or docs/plan/ (the repo's convention); else docs/plans/.
+// .jig.json comes from the repo, so it may not point outside it or at a
+// source tree: the edit hook exempts this directory from scope checks.
+export function configPlansDir(cfg) {
+  if (typeof cfg?.plansDir !== 'string' || !cfg.plansDir.trim()) return null;
+  const d = normalize(cfg.plansDir.trim()).replace(/\/+$/, '');
+  return !isAbsolute(d) && !d.split('/').includes('..') && d !== '.' && /plan/i.test(d.split('/').pop()) ? d : null;
+}
+
 export function plansDir(root) {
   try {
     const cfg = JSON.parse(readFileSync(join(root, '.jig.json'), 'utf8'));
     if (typeof cfg.plansDir === 'string' && cfg.plansDir.trim()) {
-      // .jig.json comes from the repo, so it may not point outside it or at a
-      // source tree: the edit hook exempts this directory from scope checks.
-      const d = normalize(cfg.plansDir.trim()).replace(/\/+$/, '');
-      if (!isAbsolute(d) && !d.split('/').includes('..') && d !== '.' && /plan/i.test(d.split('/').pop())) return d;
+      const d = configPlansDir(cfg);
+      if (d) return d;
       process.stderr.write(`jig: ignoring .jig.json plansDir "${cfg.plansDir}" (must be a relative folder inside the repo whose name contains "plan")\n`);
     }
   } catch (e) {

@@ -2,12 +2,12 @@
 // only git (hardened, through git.mjs) and, for --pr, gh. It never runs a
 // repo's own commands: the gate is the review skill's job.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, lstatSync, appendFileSync } from 'node:fs';
+import { readFileSync, lstatSync, appendFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { git, isCommit, stateDir } from './git.mjs';
-import { activePlans, doingSlice, plansDir } from './status.mjs';
-import { lastEvidence, workTree, readJsonl } from './verify.mjs';
+import { activePlans, doingSlice, plansDir, configPlansDir } from './status.mjs';
+import { lastEvidence, workTree, readJsonl, evidence } from './verify.mjs';
 import { loadChecks } from './checks.mjs';
 import { section } from './plan.mjs';
 import { diagnose } from './doctor.mjs';
@@ -105,20 +105,26 @@ export function diffFiles(root, base, head = null) {
   const files = new Map();
   for (const rec of stat.split('\0').filter(Boolean)) {
     const [a, d, ...p] = rec.split('\t');
-    files.set(p.join('\t'), { path: p.join('\t'), adds: a === '-' ? 0 : Number(a), dels: d === '-' ? 0 : Number(d), binary: a === '-', added: [], removed: [] });
+    files.set(p.join('\t'), { path: p.join('\t'), adds: a === '-' ? 0 : Number(a), dels: d === '-' ? 0 : Number(d), binary: a === '-', added: [], removed: [], addedAt: [], removedAt: [] });
   }
   // Headers name the file on each side; /dev/null on one side is an add or a
   // delete. Content lines are read only inside hunks.
-  let cur = null; let from = null; let inHunk = false;
+  // addedAt and removedAt hold each line's number, on the new and old side.
+  let cur = null; let from = null; let inHunk = false; let oldNo = 0; let newNo = 0;
   for (const l of patch.split('\n')) {
     if (l.startsWith('diff --git ')) { cur = null; from = null; inHunk = false; continue; }
     // git ends a header with a tab when the path has a space.
     if (!inHunk && l.startsWith('--- ')) { from = l === '--- /dev/null' ? null : l.replace(/^--- a\//, '').replace(/\t$/, ''); continue; }
     if (!inHunk && l.startsWith('+++ ')) { cur = files.get(l === '+++ /dev/null' ? from : l.replace(/^\+\+\+ b\//, '').replace(/\t$/, '')) ?? null; continue; }
-    if (l.startsWith('@@')) { inHunk = true; continue; }
+    if (l.startsWith('@@')) {
+      inHunk = true;
+      const h = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)/);
+      if (h) { oldNo = Number(h[1]); newNo = Number(h[2]); }
+      continue;
+    }
     if (!inHunk || !cur) continue;
-    if (l.startsWith('+')) cur.added.push(l.slice(1));
-    else if (l.startsWith('-')) cur.removed.push(l.slice(1));
+    if (l.startsWith('+')) { cur.added.push(l.slice(1)); cur.addedAt.push(newNo++); }
+    else if (l.startsWith('-')) { cur.removed.push(l.slice(1)); cur.removedAt.push(oldNo++); }
   }
   if (!head) {
     for (const p of lines(git(root, [...q, 'ls-files', '--others', '--exclude-standard']))) {
@@ -130,7 +136,7 @@ export function diffFiles(root, base, head = null) {
         if (st.isFile() && st.size <= MAX_UNTRACKED) text = readFileSync(join(root, p), 'utf8');
       } catch { /* unreadable: list it with no lines */ }
       const added = text.split('\n'); if (added[added.length - 1] === '') added.pop();
-      files.set(p, { path: p, adds: added.length, dels: 0, binary: false, added, removed: [], untracked: true });
+      files.set(p, { path: p, adds: added.length, dels: 0, binary: false, added, removed: [], addedAt: added.map((_, i) => i + 1), removedAt: [], untracked: true });
     }
   }
   return [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -220,15 +226,182 @@ export function triggersFor(files, { plansDir: pd = 'docs/plans' } = {}) {
   return out;
 }
 
+// ---------- tamper signals ----------
+
+// Ways a builder can make checks pass without making the code right. Found
+// from the diff and evidence.jsonl, never from a model, and each comes with
+// where to look. A signal is a reason to look closer, not a verdict.
+const ASSERTION = /\b(?:assert\w*!?|expect)\s*[.(]|\bself\.assert\w*\(|\bt\.(?:is|not|true|false|ok|equal|deepEqual|throws|regex)\s*\(|\.should\b|^\s*assert\s|\bt\.(?:Error|Fatal)f?\(/;
+// Anchored to the start of a statement, so a test's own fixture strings
+// (`'test.only(...)'`) and titles don't match.
+const SKIP = /^\s*(?:\b(?:it|test|describe|context|suite)\.(?:skip|only|todo)(?:If)?\s*\(|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.skip|\b(?:t|pytest)\.skip\(|(?:it|test|describe)\s*\(\s*(['"\x60]).*?\1\s*,\s*\{[^}]*\b(?:skip|only|todo)\s*:)/;
+const EXIT_ZERO = /^\s*(?:if\s*\(.*\)\s*)?(?:process\.|sys\.|os\._)?exit\(\s*0\s*\)/;
+// Shell forms, read only outside test files, where they would be fixtures.
+const SHELL_PASS = /(?:^|&&|\|\||;)\s*exit\s+0\b|\|\|\s*true\b|continue-on-error:\s*true|^\s*set\s+\+e\b/;
+const checksOrCi = TRIGGERS.find((t) => t.id === 'tests-or-checks').match;
+
+// Protected paths as the base's checks.json files list them, so a change
+// can't unprotect a file and edit it in one go.
+function baseProtects(root, base, dirs) {
+  const listed = lines(git(root, ['ls-tree', '-r', '--name-only', base, '--', ...dirs.map((d) => `${d}/`)]));
+  const protects = []; const unreadable = [];
+  for (const p of listed.filter((x) => x.endsWith('/checks.json'))) {
+    let c = null;
+    try { c = JSON.parse(git(root, ['show', `${base}:${p}`]) ?? ''); } catch { /* reported below */ }
+    if (Array.isArray(c?.checks)) protects.push(...c.checks.flatMap((x) => x.protects ?? []));
+    else unreadable.push(p);
+  }
+  return { protects, unreadable };
+}
+
+// Every place plans could live, at the base and now: the working tree's
+// .jig.json is part of the change, so it can't move checks out of sight.
+function planDirs(root, base, pd) {
+  let cfg = null;
+  try { cfg = JSON.parse(git(root, ['show', `${base}:.jig.json`]) ?? ''); } catch { /* none at the base */ }
+  return [...new Set([pd, configPlansDir(cfg), 'docs/plans', 'docs/plan'].filter(Boolean))];
+}
+
+// A changed test line that holds a comment or string delimiter can turn the
+// lines after it into text while their own lines stay the same: an added
+// opener, or a removed closer. Such a line is a signal itself. No parser:
+// any delimiter counts, and backticks count when an odd number are
+// unescaped. Ruby `=begin` and POD, and heredocs (`<<~EOS`), count too.
+// Delimiters every language shares, then each family's own. A file whose
+// language isn't known gets all of them (fail closed).
+const DELIM = /\/\*|\*\/|"""|\'\'\'/;
+const DELIM_BY = [
+  [['lua'], /\[=*\[/],
+  [['rb', 'pl', 'pm', 't', 'sh', 'bash', 'zsh', 'fish', 'ksh', 'php'], /^\s*=[a-z]|<<[~-]?['"]?\w|%[qQwWiIr]?[({[<|!]/],
+  [['rs'], /\br#+"/],
+];
+const KNOWN = new Set([...DELIM_BY.flatMap(([e]) => e), 'js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'swift', 'scala', 'dart', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs']);
+const langDelim = (l, path) => { const e = ext(path); return DELIM_BY.some(([exts, re]) => (exts.includes(e) || !KNOWN.has(e)) && re.test(l)); };
+// Languages whose ' and " strings stay on one line. Anywhere else an odd
+// quote count, or a removed line that is only closing punctuation, is a
+// signal (fail closed: an unknown language may let a string span lines).
+const ONE_LINE_QUOTES = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'swift', 'scala', 'dart']);
+const odd = (l, c) => (l.split(c).length - 1) % 2 === 1;
+// Raw or escape-stripped: a backslash escapes a backtick in JS, not in Go.
+// A line ending in a backslash continues onto the next one in most languages.
+const delim = (l, path) => DELIM.test(l) || langDelim(l, path) || /\\\s*$/.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
+  || (!ONE_LINE_QUOTES.has(ext(path)) && ["'", '"'].some((q) => odd(l.replace(/\\./g, ''), q)));
+// A removed line that may close something opened above it: one bare word
+// (a heredoc tag), or, outside one-line-quote languages, only closing
+// punctuation (`)`, `]==]`, `"#`).
+const closer = (l, path) => /^\s*[A-Za-z_]\w*\s*[;,]?\s*$/.test(l) || (!ONE_LINE_QUOTES.has(ext(path)) && /^\s*[)\]}>|!"#=;,]+\s*$/.test(l));
+
+export function tamperSignals(root, base, files, pd, head = null) {
+  const dirs = planDirs(root, base, pd);
+  const { protects, unreadable } = baseProtects(root, base, dirs);
+  const out = unreadable.map((p) => ({ signal: 'checks-unreadable', file: p, line: 1, side: 'base' }));
+  const headText = (p) => {
+    if (head) return git(root, ['show', `${head}:${p}`]) ?? '';
+    try { const st = lstatSync(join(root, p)); return st.isFile() && st.size <= MAX_UNTRACKED ? readFileSync(join(root, p), 'utf8') : ''; } catch { return ''; }
+  };
+  // Each assertion at the base, in a changed test file, whose exact trimmed
+  // line isn't in any of the head's changed test files: moved or re-indented
+  // lines survive, edited ones don't. New assertions never offset a deleted
+  // one, since a rewrite is still a reason to look.
+  const asserts = (text) => text.split('\n').map((l, i) => ({ l: l.trim(), at: i + 1 })).filter(({ l }) => ASSERTION.test(l) && !/^(?:\/\/|#|\*)/.test(l));
+  // A binary test can't be read for assertions, so it's a signal itself.
+  for (const f of files) if (isTest(f.path) && f.binary) out.push({ signal: 'test-binary', file: f.path, line: 1, side: 'head' });
+  const tests = files.filter((f) => isTest(f.path) && !f.binary);
+  // Counted, so deleting one of several identical assertions shows.
+  const headLines = new Map();
+  for (const f of tests) for (const l of headText(f.path).split('\n')) headLines.set(l.trim(), (headLines.get(l.trim()) ?? 0) + 1);
+  for (const f of tests) {
+    const gone = asserts(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => { const n = headLines.get(l) ?? 0; if (n > 0) { headLines.set(l, n - 1); return false; } return true; });
+    if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
+  }
+  for (const f of files) {
+    const first = f.addedAt[0] ?? f.removedAt[0] ?? 1;
+    const side = f.addedAt.length ? 'head' : 'base';
+    if (isTest(f.path)) {
+      f.removed.forEach((l, i) => { if (delim(l, f.path) || closer(l, f.path)) out.push({ signal: 'comment-opened', file: f.path, line: f.removedAt[i], side: 'base', text: l.trim() }); });
+      f.added.forEach((l, i) => {
+        if (delim(l, f.path)) out.push({ signal: 'comment-opened', file: f.path, line: f.addedAt[i], text: l.trim() });
+        const m = l.match(SKIP);
+        if (m) out.push({ signal: /only|\bf(?:it|describe)/.test(m[0]) ? 'only' : 'skip', file: f.path, line: f.addedAt[i], text: l.trim() });
+      });
+    }
+    if (checksOrCi(f, { plansDir: pd })) {
+      f.added.forEach((l, i) => {
+        if (EXIT_ZERO.test(l)) out.push({ signal: 'exit-zero', file: f.path, line: f.addedAt[i], text: l.trim() });
+        else if (!isTest(f.path) && SHELL_PASS.test(l)) out.push({ signal: 'swallowed-failure', file: f.path, line: f.addedAt[i], text: l.trim() });
+      });
+    }
+    if (f.path === '.jig.json') out.push({ signal: 'config-edited', file: f.path, line: first, side });
+    // The reviewer's own checklist and suppressions: a change that edits them
+    // is reviewed by rules it wrote, from the next slice on.
+    if (f.path === 'REVIEW.md') out.push({ signal: 'rules-edited', file: f.path, line: first, side });
+    if (dirs.some((d) => f.path.startsWith(`${d}/`)) && f.path.endsWith('/checks.json')) out.push({ signal: 'checks-edited', file: f.path, line: first, side });
+    // A protected file the change creates is the slice's own new test.
+    else if (protects.some((p) => pathMatches(f.path, p)) && git(root, ['cat-file', '-e', `${base}:${f.path}`]) !== null) out.push({ signal: 'protected', file: f.path, line: first, side });
+  }
+  // The same check failing twice on one tree since the base was committed:
+  // a rerun with nothing changed is a retry, which hides a flaky or a real
+  // failure.
+  const since = Date.parse(git(root, ['show', '-s', '--format=%cI', base])?.trim() ?? '') || 0;
+  const fails = new Map();
+  for (const r of evidence(root)) {
+    const t = typeof r.t === 'number' ? r.t : Date.parse(r.t);
+    if (!r.tree || !(t >= since)) continue;
+    for (const x of r.results ?? []) {
+      if (x.pass) continue;
+      const k = `${r.plan}\0${x.id}\0${r.tree}`;
+      fails.set(k, { plan: r.plan, check: x.id, tree: r.tree, count: (fails.get(k)?.count ?? 0) + 1 });
+    }
+  }
+  for (const v of fails.values()) if (v.count >= 2) out.push({ signal: 'repeat-fail', ...v });
+  return out;
+}
+
+// The newest session's transcript path, and whether it can be read: it
+// exists and every line parses. Only the path is kept, never the content.
+// Only a session that started at or after the base and edited files can
+// have built this change; any other transcript would be scored as if it had.
+const TRANSCRIPT_MAX = 64 * 1024 * 1024;
+export function transcriptInfo(root, base) {
+  const dir = join(stateDir(root), 'sessions');
+  let newest = null;
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      let d; try { d = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; }
+      const m = statSync(join(dir, f)).mtimeMs;
+      // It must have edited something: a fresh review session hasn't.
+      if (typeof d.transcript !== 'string' || typeof d.startHead !== 'string' || !d.editedAt) continue;
+      if (git(root, ['merge-base', '--is-ancestor', base, d.startHead]) === null) continue;
+      if (!newest || m > newest.m) newest = { m, path: d.transcript };
+    }
+  } catch { return null; }
+  if (!newest) return null;
+  let readable = false;
+  try {
+    const st = lstatSync(newest.path);
+    if (st.isFile() && st.size <= TRANSCRIPT_MAX) readable = readFileSync(newest.path, 'utf8').split('\n').filter(Boolean).every((l) => { try { JSON.parse(l); return true; } catch { return false; } });
+  } catch { /* missing: not readable */ }
+  return { path: newest.path, readable };
+}
+
 // ---------- REVIEW.md from the base ----------
 
 // Entries look like "- When: <trigger> · Check: <what> · Source: <where>".
 // An entry matches when a path or code token in its When (backticks, or a
 // word with a slash or a dot) appears in a changed path or an added line.
 // Entries with no such token go to `judge`: the reviewer decides them.
+// The only classes a Suppress entry may cover: style and upkeep, where a
+// wrong call costs a little attention. Security, correctness and tampering
+// classes are seen every time, whatever REVIEW.md says (allowlist, not a
+// list of dangerous names, which reviews kept finding gaps in).
+export const SUPPRESSIBLE = /^(?:naming|style|format|formatting|readability|comment|comments|doc|docs|documentation|convention|conventions|dead-code|duplicate|duplication|simplify|simplification|complexity|perf|performance|typo|typos|wording|nit)$/;
+
 export function reviewMdEntries(text, files) {
-  const matched = []; const judge = [];
+  const matched = []; const judge = []; const suppress = [];
   for (const l of (text ?? '').split('\n')) {
+    const sup = l.match(/^\s*-\s*Suppress:\s*([\w-]+)\s*·\s*Source:\s*(.+?)\s*$/);
+    if (sup) { if (SUPPRESSIBLE.test(sup[1]) && sup[1] === sup[1].toLowerCase()) suppress.push({ class: sup[1], source: sup[2] }); continue; }
     const m = l.match(/^\s*-\s*When:\s*(.+?)\s*·\s*Check:\s*(.+?)\s*·\s*Source:\s*(.+?)\s*$/);
     if (!m) continue;
     const e = { when: m[1], check: m[2], source: m[3] };
@@ -238,7 +411,113 @@ export function reviewMdEntries(text, files) {
     const hit = files.filter((f) => toks.some((t) => (/[*?]/.test(t) ? pathMatches(f.path, t) : f.path.includes(t) || f.added.some((a) => a.includes(t)))));
     if (hit.length) matched.push({ ...e, files: hit.map((f) => f.path) });
   }
-  return { matched, judge };
+  return { matched, judge, suppress };
+}
+
+// ---------- learning from outcomes ----------
+
+const short7 = (s) => String(s).slice(0, 7);
+const isAncestor = (root, a, b) => git(root, ['merge-base', '--is-ancestor', a, b]) !== null;
+
+// The REVIEW.md `When:` for a set of files: their common directory, or the
+// file itself when there's only one.
+function whenFor(files) {
+  if (!files.length) return '<the files it changed>';
+  if (files.length === 1) return `\`${files[0]}\``;
+  const parts = files.map((f) => f.split('/').slice(0, -1));
+  const common = [];
+  for (let i = 0; parts.every((p) => i < p.length && p[i] === parts[0][i]); i++) common.push(parts[0][i]);
+  return common.length ? `\`${common.join('/')}/\`` : files.map((f) => `\`${f}\``).join(', ');
+}
+
+// Proposals for the owner, from reviews.jsonl and git history. Nothing is
+// written: suppressions and REVIEW.md entries are the owner's to commit.
+export function proposals(root) {
+  const recs = reviews(root);
+  const all = recs.filter((r) => !r.kind && r.findings);
+  const byId = new Map(); for (const r of all) for (const f of r.findings) if (!byId.has(f.id)) byId.set(f.id, { ...f, review: r.id });
+  // The latest outcome per finding is the current one.
+  const latest = new Map(); for (const o of recs.filter((r) => r.kind === 'outcome' && r.finding)) latest.set(o.finding, o.outcome);
+  const classes = new Map();
+  for (const [id, outcome] of latest) {
+    const f = byId.get(id); if (!f) continue;
+    const c = classes.get(f.class) ?? { wrong: [], fixed: 0 };
+    if (outcome === 'wrong' || outcome === 'didnt-matter') c.wrong.push(f.review);
+    if (outcome === 'fixed') c.fixed++;
+    classes.set(f.class, c);
+  }
+  const suppress = []; const held = [];
+  for (const [cls, c] of classes) {
+    if (c.wrong.length < 2) continue;
+    if (!SUPPRESSIBLE.test(cls) || cls !== cls.toLowerCase()) { held.push({ class: cls, why: `${c.wrong.length} wrong, but not a suppressible class (security, correctness and tampering classes are never proposed)` }); continue; }
+    if (c.fixed >= c.wrong.length) { held.push({ class: cls, why: `${c.wrong.length} wrong but ${c.fixed} fixed` }); continue; }
+    const ids = [...new Set(c.wrong)];
+    suppress.push({ class: cls, wrong: c.wrong.length, fixed: c.fixed, entry: `- Suppress: ${cls} · Source: reviews ${ids.join(', ')}` });
+  }
+  const entries = [];
+  // Misses the owner named, grouped by what was missed.
+  const misses = new Map();
+  for (const o of recs.filter((r) => r.kind === 'outcome' && r.outcome === 'missed')) {
+    const k = o.note.toLowerCase();
+    const m = misses.get(k) ?? { note: o.note, files: [], reviews: [] };
+    m.files.push(o.file); m.reviews.push(o.review); misses.set(k, m);
+  }
+  for (const m of misses.values()) {
+    const ids = [...new Set(m.reviews)];
+    entries.push({ kind: 'missed', count: ids.length, ready: ids.length >= 2, files: [...new Set(m.files)], entry: `- When: ${whenFor([...new Set(m.files)])} · Check: ${m.note} · Source: reviews ${ids.join(', ')} (missed)` });
+  }
+  // Reverts and fix-forwards of commits a `ready` review passed: the review
+  // let something through that later had to come out or be fixed. A commit
+  // was reviewed when it's in a review's base..head, or when its tree is the
+  // tree a review saw (working-tree reviews, squash merges).
+  const ready = all.filter((r) => r.verdict === 'ready' && r.head && r.base).sort((a, b) => a.t - b.t);
+  const treeOf = (sha) => git(root, ['rev-parse', `${sha}^{tree}`])?.trim();
+  const reviewedIn = (sha) => {
+    const tree = treeOf(sha);
+    return ready.find((r) => (r.tree && r.tree === tree) || (r.base !== sha && isAncestor(root, r.base, sha) && isAncestor(root, sha, r.head)));
+  };
+  // A merge's files against its first parent.
+  const filesOf = (sha) => lines(git(root, ['diff-tree', '-m', '--first-parent', '--no-commit-id', '--name-only', '-r', sha]));
+  const seenMemo = new Map();
+  const seen = (r) => { if (!seenMemo.has(r.id)) seenMemo.set(r.id, new Set(lines(git(root, ['diff', '--name-only', r.base, r.head])))); return seenMemo.get(r.id); };
+  const reviewedTrees = new Set(ready.map((r) => r.tree).filter(Boolean));
+  // Only history since the oldest reviewed base can hold either.
+  const range = ready.length ? [`${ready[0].base}..HEAD`] : null;
+  const log = range ? git(root, ['log', '--format=%H%x00%ct%x00%s%x00%b%x1e', ...range]) ?? '' : '';
+  for (const rec of log.split('\x1e').map((x) => x.trim()).filter(Boolean)) {
+    const [sha, ct, subject, body] = rec.split('\0');
+    const reverted = body?.match(/This reverts commit ([0-9a-f]{40})/)?.[1];
+    if (reverted) {
+      const r = reviewedIn(reverted);
+      if (r) { const files = filesOf(reverted); entries.push({ kind: 'revert', count: 1, ready: false, files, source: `revert ${short7(sha)} of ${short7(reverted)}, reviewed ready in ${r.id}`, entry: `- When: ${whenFor(files)} · Check: <what ${short7(reverted)} got wrong> · Source: revert ${short7(sha)} of ${short7(reverted)}, reviewed ready in ${r.id}` }); }
+      continue;
+    }
+    if (!/^fix(\(.+\))?!?:/i.test(subject)) continue;
+    // The reviewed work itself, committed as a fix, isn't a fix of it.
+    if (reviewedTrees.has(treeOf(sha))) continue;
+    // A fix after a ready review and before the next one, touching files that
+    // review saw change. The newest such review wins.
+    let r = null; let files = [];
+    for (const [k, x] of [...ready.entries()].reverse()) {
+      const next = ready[k + 1];
+      if (next && Number(ct) * 1000 > next.t) continue;
+      if (x.head === sha || !isAncestor(root, x.head, sha)) continue;
+      files = filesOf(sha).filter((f) => seen(x).has(f));
+      if (files.length) { r = x; break; }
+    }
+    if (r) entries.push({ kind: 'fix-forward', count: 1, ready: false, files, source: `${short7(sha)} fixed ${files.join(', ')} after it was reviewed ready in ${r.id}`, entry: `- When: ${whenFor(files)} · Check: <what ${short7(sha)} fixed: ${subject.replace(/^fix(\(.+\))?!?:\s*/i, '')}> · Source: ${short7(sha)}, after review ${r.id}` });
+  }
+  return { suppress, held, entries };
+}
+
+export function formatProposals(p) {
+  const out = ['Proposals from review outcomes. REVIEW.md is yours: jig never writes it. Copy what you agree with.'];
+  out.push('', 'Suppress (a class marked wrong or didnt-matter on two or more findings):');
+  out.push(...(p.suppress.length ? p.suppress.map((s) => `  ${s.entry}    (${s.wrong} wrong, ${s.fixed} fixed)`) : ['  none']));
+  if (p.held.length) out.push(...p.held.map((h) => `  not proposed: ${h.class} (${h.why})`));
+  out.push('', 'REVIEW.md entries (guard skill: propose one only after it happened twice and you tried to disprove it):');
+  out.push(...(p.entries.length ? p.entries.map((e) => `  ${e.entry}    (${e.kind}, ${e.count} time${e.count === 1 ? '' : 's'}${e.ready ? '' : ', wait for a second'})`) : ['  none']));
+  return out.join('\n');
 }
 
 // ---------- records ----------
@@ -250,7 +529,7 @@ export const reviews = (root) => readJsonl(root, 'reviews.jsonl');
 export const VERDICTS = ['ready', 'fix first', 'rethink'];
 export const SEVERITIES = ['Important', 'Nit', 'Pre-existing'];
 export const CONFIDENCES = ['Confirmed', 'Likely', 'Needs verification'];
-export const OUTCOMES = ['fixed', 'wrong', 'intentional', 'didnt-matter'];
+export const OUTCOMES = ['fixed', 'wrong', 'intentional', 'didnt-matter', 'missed'];
 const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
 
 // Stable across reviews: class, file and title (lower case, spaces collapsed),
@@ -302,8 +581,17 @@ export function recordReview(root, input) {
   return { record: rec, trailer: `Reviewed: ${rec.verdict}, ${findings.length} findings (tree ${tree ? tree.slice(0, 7) : 'none'})` };
 }
 
-export function recordOutcome(root, id, outcome) {
+// `missed` is about a review, not a finding: what it should have caught,
+// and where. Every other outcome settles one finding.
+export function recordOutcome(root, id, outcome, { file = null, note = null } = {}) {
   if (!OUTCOMES.includes(outcome)) return { error: `outcome must be one of ${OUTCOMES.join(', ')}` };
+  if (outcome === 'missed') {
+    if (typeof file !== 'string' || !file || typeof note !== 'string' || !note.trim()) return { error: 'missed needs --file <path> and --note "<what the review should have caught>"' };
+    if (!reviews(root).some((r) => !r.kind && r.id === id)) return { error: `no review ${id} in reviews.jsonl (a miss names the review that missed it)` };
+    const rec = { v: 1, t: Date.now(), kind: 'outcome', review: id, outcome, file, note: note.trim() };
+    appendFileSync(join(stateDir(root), 'reviews.jsonl'), JSON.stringify(rec) + '\n');
+    return { record: rec };
+  }
   if (!reviews(root).some((r) => (r.findings ?? []).some((f) => f.id === id))) return { error: `no finding ${id} in reviews.jsonl` };
   const rec = { v: 1, t: Date.now(), kind: 'outcome', finding: id, outcome };
   appendFileSync(join(stateDir(root), 'reviews.jsonl'), JSON.stringify(rec) + '\n');
@@ -326,6 +614,28 @@ export function planIntent(plan, sliceId) {
 }
 
 // ---------- the brief ----------
+
+// Suppress entries come from REVIEW.md at the plan's Baseline, or the
+// merge-base with the default branch without a plan, never from a slice
+// commit the builder wrote: a Suppress line it adds in one slice would
+// otherwise silence the next slice's review.
+function suppressFrom(root, planRel, files) {
+  // Trusted refs only: the merge-base with the default branch, and the plan's
+  // Baseline as the plan reads there, never the working-tree PLAN.md. On the
+  // default branch itself (merge-base is HEAD) nothing is trusted.
+  const def = defaultBranch(root);
+  const mb = def ? git(root, ['merge-base', 'HEAD', def])?.trim() : null;
+  if (!mb || mb === full(root, 'HEAD')) return [];
+  let at = null;
+  if (planRel) {
+    const baseline = (git(root, ['show', `${mb}:${planRel}`]) ?? '').match(/Baseline:\s*([0-9a-f]{4,40})\b/)?.[1];
+    const b = baseline ? full(root, baseline) : null;
+    at = b && isAncestor(root, b, mb) ? b : null;
+  } else at = mb;
+  if (!at) return [];
+  const text = git(root, ['show', `${at}:REVIEW.md`]);
+  return text === null ? [] : reviewMdEntries(text, files).suppress;
+}
 
 export function reviewBrief(root, opts = {}) {
   const b = resolveBase(root, opts);
@@ -368,7 +678,10 @@ export function reviewBrief(root, opts = {}) {
     stats: { files: files.length, adds: files.reduce((n, f) => n + f.adds, 0), dels: files.reduce((n, f) => n + f.dels, 0) },
     files: files.map(({ path, adds, dels, binary, untracked }) => ({ path, adds, dels, ...(binary ? { binary } : {}), ...(untracked ? { untracked } : {}) })),
     triggers: triggersFor(files, { plansDir: pd }),
-    reviewMd: reviewText === null ? null : reviewMdEntries(reviewText, files),
+    tamper: tamperSignals(root, b.base, files, pd, b.head ?? null),
+    // A working-tree review only: a PR or committed range has no session.
+    transcript: b.head || b.pr ? null : transcriptInfo(root, b.base),
+    reviewMd: reviewText === null ? null : { ...reviewMdEntries(reviewText, files), suppress: suppressFrom(root, mine ? relative(root, mine.path) : null, files) },
     checks,
     gate,
     round,
@@ -377,7 +690,7 @@ export function reviewBrief(root, opts = {}) {
   };
   // --blind: what a first, blind pass may see. The earlier verdict and the
   // evidence record are opinions and claims, so they wait for Phase 2.
-  if (opts.blind) { delete brief.review; delete brief.evidence; }
+  if (opts.blind) { delete brief.review; delete brief.evidence; delete brief.transcript; }
   return brief;
 }
 
@@ -396,6 +709,8 @@ export function formatBrief(b) {
     for (const e of b.reviewMd.matched) out.push(`REVIEW.md: ${e.check} (Source: ${e.source}) on ${e.files.join(', ')}`);
     if (b.reviewMd.judge.length) out.push(`REVIEW.md: ${b.reviewMd.judge.length} entr${b.reviewMd.judge.length === 1 ? 'y' : 'ies'} with no path trigger, for the reviewer to judge`);
   }
+  for (const t of b.tamper ?? []) out.push(`Tamper ${t.signal}: ${t.file ? `${t.side === 'base' ? 'base:' : ''}${t.file}:${t.line}` : `${t.check} failed ${t.count} times on tree ${short(t.tree)}`}${t.text ? ` (${t.text.slice(0, 80)})` : ''}`);
+  if (b.transcript) out.push(`Transcript: ${b.transcript.readable ? b.transcript.path : 'not readable'}`);
   out.push(`Gate: ${b.checks ? 'jig verify (checks.json)' : b.gate.D1?.level === 'ok' ? b.gate.D1.msg : 'no checks.json and no one-command verify'}${b.gate.D7?.level === 'ok' ? `; ${b.gate.D7.msg}` : ''}`);
   out.push(`Evidence: ${b.evidence ? `${b.evidence.pass ? 'pass' : 'FAIL'} at tree ${short(b.evidence.tree)} (${b.evidence.current ? 'current' : 'stale'})` : 'none'}`);
   out.push(`Review: ${b.review ? `${b.review.verdict} at tree ${short(b.review.tree)} (${b.review.current ? 'current' : 'stale'})` : 'none'}`);

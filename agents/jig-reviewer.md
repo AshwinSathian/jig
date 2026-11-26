@@ -69,6 +69,7 @@ Check:
 8. **Conventions.** Report a convention finding only with the rule quoted from CLAUDE.md, REVIEW.md, a linter config or a documented project pattern, and where it's written.
 9. **REVIEW.md entries** that the brief matched, and any listed for you to judge. Cite the entry's Source in the finding.
 10. **The plan is wrong.** When the code does what the plan says and the plan's intent is the defect (an owner Decision that can't hold, a check that can't fail, a case the Outcome needs that no slice covers), report it with class `plan-is-wrong`, so it goes back into the plan rather than into a patch.
+11. **Suppressed classes.** The brief's `reviewMd.suppress` lists `Suppress: <class>` entries from REVIEW.md at the plan's Baseline (or the merge-base), and only style and upkeep classes; jig drops any other: the owner has marked that class wrong or not worth raising before. Don't report a Nit of a suppressed class. Report an Important one only with Confirmed evidence, and name the suppression it overrides. Count what you held back in one line, `Suppressed: <n> (<class>)`.
 
 Write down every Phase 1 finding before Phase 2. When the input says "Phase 1 only", return the Phase 1 findings in the Output format and stop. Phase 2 starts when the builder's claims arrive in a later message, and you don't go looking for them before that.
 
@@ -106,6 +107,7 @@ Findings:
    Rule: "<quoted rule>" (<where it's written>; convention findings only)
    Swallows: <unexpected errors; new catch blocks only>
 ...
+Suppressed: <n> (<class>); leave the line out when none
 Declined to judge: <behaviour you set aside, each with the reason (outside the spec, needs a run, needs domain knowledge you don't have)>
 Earlier findings: <fixed / still open, by number; round 2 and later only>
 Not checked: <anything you couldn't check, and why>

@@ -8,7 +8,7 @@ import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './l
 import { verifyPlan, changedNote, trailer } from './lib/verify.mjs';
 import { repoRoot } from './lib/git.mjs';
 
-const VERSION = '2.4.6';
+const VERSION = '2.5.0';
 const HELP = `jig ${VERSION}
 
 Usage:
@@ -21,7 +21,7 @@ Usage:
                                          Run checks from checks.json; --record appends the result to the Log
   jig doctor [--json] [--ack]            Report harness gaps in this repo (changes nothing in the repo);
                                          --ack records that you've read the repo's agent config
-  jig review [--base <ref> | --pr <n>] [--json] [--blind] [--record <findings.json>] [--outcome <id> <outcome>]
+  jig review [--base <ref> | --pr <n>] [--json] [--blind] [--record <findings.json>] [--outcome <id> <outcome>] [--propose]
                                          The brief a review starts from: base, tree, triggers, REVIEW.md
                                          entries from the base, and the last evidence and review records
   jig observe                            What observed gates would have asked or blocked (.git/jig/observe.jsonl)
@@ -51,7 +51,7 @@ function expand(p, depth = 0) {
   return readdirSync(p).flatMap((n) => (n === 'node_modules' || n.startsWith('.') ? [] : n === 'PLAN.md' ? [join(p, n)] : statSync(join(p, n)).isDirectory() ? expand(join(p, n), depth + 1) : []));
 }
 
-const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths', 'ack', 'blind']);
+const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths', 'ack', 'blind', 'propose']);
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -134,6 +134,13 @@ async function main() {
     case 'review': {
       const { reviewBrief, formatBrief } = await import('./lib/review.mjs');
       for (const k of ['base', 'pr']) if (flags[k] === true || String(flags[k] ?? '').startsWith('-')) { console.error(`jig review: --${k} needs a ${k === 'pr' ? 'PR number' : 'ref'}`); return 2; }
+      if (flags.propose !== undefined) {
+        if (flags.record !== undefined || flags.outcome !== undefined) { console.error('jig review: --propose only reads; run --record or --outcome on its own'); return 2; }
+        const { proposals, formatProposals } = await import('./lib/review.mjs');
+        const p = proposals(root);
+        console.log(flags.json === 'true' ? JSON.stringify(p, null, 2) : formatProposals(p));
+        return 0;
+      }
       if (flags.record !== undefined || flags.outcome !== undefined) {
         const { recordReview, recordOutcome } = await import('./lib/review.mjs');
         let r;
@@ -146,8 +153,8 @@ async function main() {
           r = recordReview(root, input);
           if (!r.error) console.log(r.trailer);
         } else {
-          if (flags.outcome === true || !pos[0]) { console.error('jig review: --outcome <finding id> <fixed|wrong|intentional|didnt-matter>'); return 2; }
-          r = recordOutcome(root, flags.outcome, pos[0]);
+          if (flags.outcome === true || !pos[0]) { console.error('jig review: --outcome <finding id> <fixed|wrong|intentional|didnt-matter>, or --outcome <review id> missed --file <path> --note "<what>"'); return 2; }
+          r = recordOutcome(root, flags.outcome, pos[0], { file: typeof flags.file === 'string' ? flags.file : null, note: typeof flags.note === 'string' ? flags.note : null });
           if (!r.error) console.log(`recorded: ${flags.outcome} ${pos[0]}`);
         }
         if (r.error) { console.error(`jig review: ${r.error}`); return 2; }

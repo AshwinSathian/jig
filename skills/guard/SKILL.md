@@ -50,6 +50,8 @@ Propose an entry only when all three hold:
 - its trigger can be seen in a diff, without running anything
 - it survived one attempt to disprove it: look for a past diff where the trigger matched and the problem wasn't there, and narrow the trigger if you find one
 
+`jig review --propose` lists candidates from review outcomes. It covers misses the owner recorded (`--outcome <review id> missed`), reverts and `fix:` commits after a `ready` review, and finding classes marked wrong twice. It marks which have happened only once. It never proposes suppressing a security or tampering class. A suppression is one line, `- Suppress: <class> · Source: <review ids>`, and the reviewer then holds back that class's Nits.
+
 Show the owner the exact entry and let them commit REVIEW.md. Rule files are the owner's, and the reviewer reads REVIEW.md from the plan's Baseline commit, so an agent editing it mid-slice changes nothing anyway.
 
 Prune the list when you add to it: drop entries whose Source no longer applies (the code is gone, or a test now catches it) and merge entries with the same trigger. A long checklist gets skimmed.

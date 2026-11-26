@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Which skill fires first for each prompt, per arm. Stops each run at its
 // first Skill call, so a run costs one turn.
-// Usage: node evals/triggers/run.mjs [--arms jig,jig+superpowers] [--runs 1] [--model opus]
+// Usage: node evals/triggers/run.mjs [--arms jig,jig+superpowers,jig+competing] [--runs 1] [--model opus]
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -23,6 +23,10 @@ const armNames = flag('arms', 'jig,jig+superpowers').split(',');
 const runs = Number(flag('runs', '1'));
 const model = flag('model', undefined);
 const ARMS = arms({ jigDir: JIG, superpowersDir: SUPERPOWERS });
+// The collision arm: jig with the review plugins it competes with
+// (COMPETING_DIRS, colon-separated plugin directories), for the
+// collision-* cases. Paid like every arm here.
+ARMS['jig+competing'] = ['--plugin-dir', JIG, ...(process.env.COMPETING_DIRS ?? '').split(':').filter(Boolean).flatMap((d) => ['--plugin-dir', d])];
 
 function scaffold() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jig-trig-')));
@@ -43,7 +47,8 @@ const results = await pool(jobs, 4, async ({ c, arm }) => {
   const out = await runClaude({ cwd: scaffold(), prompt: c.prompt, armFlags: ARMS[arm], model, budgetUsd: 1, timeoutMs: 180_000, stopOnSkill: true });
   const first = out.skills[0] ?? 'none';
   const firedJig = /(^|:)plan$/.test(first) && !first.startsWith('superpowers');
-  const pass = c.expect === 'either' ? true : c.expect === 'jig' ? firedJig : !firedJig;
+  // jig:review: the first skill must be jig's review, not a competing reviewer.
+  const pass = c.expect === 'either' ? true : c.expect === 'jig:review' ? first === 'jig:review' : c.expect === 'jig' ? firedJig : !firedJig && first !== 'jig:review';
   process.stderr.write(`${pass ? 'ok  ' : 'MISS'} [${arm}] ${c.id}: first skill = ${first}\n`);
   return { id: c.id, arm, expect: c.expect, first, pass, killed: out.killed };
 });
