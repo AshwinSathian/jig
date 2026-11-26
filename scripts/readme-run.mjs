@@ -87,5 +87,10 @@ const a = text.indexOf(START); const b = text.indexOf(END);
 if (a === -1 || b === -1) { console.error(`readme-run: ${readme} has no ${START} … ${END} markers`); process.exit(2); }
 const next = text.slice(0, a) + section + text.slice(b + END.length);
 if (args.includes('--check')) {
-  if (next !== text) { console.error('readme-run: the README run section is out of date. Run `node scripts/readme-run.mjs`.'); process.exit(1); }
+  if (next !== text) {
+    const was = text.slice(a, b).split('\n'); const now = section.split('\n');
+    const diff = now.flatMap((l, i) => (l === was[i] ? [] : [`- ${was[i] ?? ''}`, `+ ${l}`])).slice(0, 12).join('\n');
+    console.error(`readme-run: the README run section is out of date. Run \`node scripts/readme-run.mjs\`.\n${diff}`);
+    process.exit(1);
+  }
 } else if (next !== text) writeFileSync(readme, next);
