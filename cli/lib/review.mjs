@@ -329,16 +329,20 @@ export function reviewBrief(root, opts = {}) {
   // PR head is what's checked out.
   const tree = b.head && b.head !== full(root, 'HEAD') ? null : workTree(root);
   const ev = lastEvidence(root);
-  const rv = reviews(root).filter((r) => !r.kind && r.findings).pop() ?? null;
+  const all = reviews(root).filter((r) => !r.kind && r.findings);
+  const rv = all[all.length - 1] ?? null;
+  // Rounds of review on this base: a later round reviews only the diff since
+  // the last reviewed head, with the earlier findings.
+  const round = all.filter((r) => r.base === b.base).length + 1;
   const active = activePlans(root);
   const mine = b.plan ? active.find(({ path }) => relative(root, path) === b.plan) : null;
   const checks = active.some(({ path }) => loadChecks(path).exists);
   const reviewText = git(root, ['show', `${b.base}:REVIEW.md`]);
   // What the review skill's gate runs when there is no checks.json (doctor D1, D7).
   const diag = diagnose(root);
-  const pick = (d) => (d ? { level: d.level, msg: d.msg } : null);
+  const pick = (d) => (d ? { level: d.level, msg: d.msg, ...(d.id === 'D1' && d.level === 'ok' ? { commands: d.msg.replace(/^verify command found:\s*/, '').split(', ') } : {}) } : null);
   const gate = { D1: pick(diag.find((d) => d.id === 'D1' && d.level !== 'info')), D7: pick(diag.find((d) => d.id === 'D7')) };
-  return {
+  const brief = {
     v: 1,
     base: b.base, head, how: b.how,
     ...(b.plan ? { plan: b.plan, slice: b.slice } : {}),
@@ -354,9 +358,14 @@ export function reviewBrief(root, opts = {}) {
     reviewMd: reviewText === null ? null : reviewMdEntries(reviewText, files),
     checks,
     gate,
+    round,
     evidence: ev ? { t: ev.t, plan: ev.plan, slice: ev.slice, tree: ev.tree, pass: (ev.results ?? []).length > 0 && ev.results.every((r) => r.pass), current: Boolean(tree && ev.tree === tree) } : null,
-    review: rv ? { t: rv.t, id: rv.id, verdict: rv.verdict, tree: rv.tree, current: Boolean(tree && rv.tree === tree) } : null,
+    review: rv ? { t: rv.t, id: rv.id, verdict: rv.verdict, base: rv.base, head: rv.head, tree: rv.tree, current: Boolean(tree && rv.tree === tree), findings: rv.findings } : null,
   };
+  // --blind: what a first, blind pass may see. The earlier verdict and the
+  // evidence record are opinions and claims, so they wait for Phase 2.
+  if (opts.blind) { delete brief.review; delete brief.evidence; }
+  return brief;
 }
 
 const short = (s) => (s ? s.slice(0, 7) : '-');

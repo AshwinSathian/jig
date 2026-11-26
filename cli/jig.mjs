@@ -21,7 +21,7 @@ Usage:
                                          Run checks from checks.json; --record appends the result to the Log
   jig doctor [--json] [--ack]            Report harness gaps in this repo (changes nothing in the repo);
                                          --ack records that you've read the repo's agent config
-  jig review [--base <ref> | --pr <n>] [--json] [--record <findings.json>] [--outcome <id> <outcome>]
+  jig review [--base <ref> | --pr <n>] [--json] [--blind] [--record <findings.json>] [--outcome <id> <outcome>]
                                          The brief a review starts from: base, tree, triggers, REVIEW.md
                                          entries from the base, and the last evidence and review records
   jig hook <session-start|pre-edit|pre-bash|stop>   Hook entry points (read JSON on stdin)
@@ -50,7 +50,7 @@ function expand(p, depth = 0) {
   return readdirSync(p).flatMap((n) => (n === 'node_modules' || n.startsWith('.') ? [] : n === 'PLAN.md' ? [join(p, n)] : statSync(join(p, n)).isDirectory() ? expand(join(p, n), depth + 1) : []));
 }
 
-const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths', 'ack']);
+const BOOL = new Set(['json', 'fast', 'record', 'help', 'no-paths', 'ack', 'blind']);
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -152,7 +152,7 @@ async function main() {
         if (r.error) { console.error(`jig review: ${r.error}`); return 2; }
         return 0;
       }
-      const b = reviewBrief(root, { base: flags.base ?? null, pr: flags.pr ?? null });
+      const b = reviewBrief(root, { base: flags.base ?? null, pr: flags.pr ?? null, blind: flags.blind === 'true' });
       if (b.error) { console.error(`jig review: ${b.error}`); return 2; }
       console.log(flags.json === 'true' ? JSON.stringify(b, null, 2) : formatBrief(b));
       return 0;

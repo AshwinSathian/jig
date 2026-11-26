@@ -70,7 +70,7 @@ Check:
 9. **REVIEW.md entries** that the brief matched, and any listed for you to judge. Cite the entry's Source in the finding.
 10. **The plan is wrong.** When the code does what the plan says and the plan's intent is the defect (an owner Decision that can't hold, a check that can't fail, a case the Outcome needs that no slice covers), report it with class `plan-is-wrong`, so it goes back into the plan rather than into a patch.
 
-Write down every Phase 1 finding before Phase 2.
+Write down every Phase 1 finding before Phase 2. When the input says "Phase 1 only", return the Phase 1 findings in the Output format and stop. Phase 2 starts when the builder's claims arrive in a later message, and you don't go looking for them before that.
 
 ### Phase 2: claims against evidence
 

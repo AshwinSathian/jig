@@ -265,6 +265,35 @@ test('jig review --json prints the brief, and the text form leads with base and 
   assert.match(t.stdout, /tree [0-9a-f]{7}/);
 });
 
+test('--blind leaves out the earlier review and the evidence; the full brief has the round and earlier findings', async () => {
+  const { recordReview } = await import('../cli/lib/review.mjs');
+  const { dir, planPath } = planRepo();
+  verifyPlan(dir, planPath, { slice: 'S1' });
+  writeFileSync(join(dir, 'src/a.js'), 'export const a = 3;\n');
+  let b = reviewBrief(dir, {});
+  assert.equal(b.round, 1);
+  recordReview(dir, { base: b.base, head: b.head, tree: b.tree, verdict: 'fix first', findings: [{ severity: 'Important', confidence: 'Confirmed', file: 'src/a.js', line: 1, class: 'off-by-one', title: 'a is 3, spec says 2' }] });
+  b = reviewBrief(dir, {});
+  assert.equal(b.round, 2);
+  assert.equal(b.review.head, b.head);
+  assert.equal(b.review.findings[0].title, 'a is 3, spec says 2');
+  const blind = reviewBrief(dir, { blind: true });
+  assert.ok(!('review' in blind) && !('evidence' in blind), Object.keys(blind).join(','));
+  assert.equal(blind.round, 2);
+  const cli = spawnSync('node', [CLI, 'review', '--json', '--blind'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.ok(!('review' in JSON.parse(cli.stdout)));
+});
+
+test('the gate lists D1 commands as a list', () => {
+  const { dir, g } = tempRepo();
+  g('branch', '-M', 'main');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'node --test', check: 'tsc' } }));
+  const b = reviewBrief(dir, {});
+  assert.equal(b.gate.D1.level, 'ok');
+  assert.deepEqual(b.gate.D1.commands, ['npm run check', 'npm test']);
+});
+
 test('jig review exits 2 with a message for a bad --base', () => {
   const { dir } = planRepo();
   const r = spawnSync('node', [CLI, 'review', '--base', 'nope'], { cwd: dir, encoding: 'utf8' });

@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S5 doing (`jig:review` skill and build wiring).
+Now: S6 doing (`Blocked:` exit and the `commit` gate).
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -67,12 +67,12 @@ Touch: `agents/jig-reviewer.md`, `evals/reviewer/grade.mjs`, `test/reviewer-grad
 Checks: C7, R4
 - Risk: C7 shows the rules are written down, not that a model follows them. Detect: S11 measures it. Fallback: report C7 as a text check only.
 
-### S5: `jig:review` skill and build wiring [doing]
+### S5: `jig:review` skill and build wiring [done]
 Goal: `skills/review/SKILL.md` runs the router, the deterministic gate (and asks before running someone else's PR), the two phases, validation, partners by trigger with "Not checked" for any that aren't installed, the record, and a short report with the `Reviewed:` trailer. Without checks.json the gate is D1's one-command verify plus D7's runner. The report shows at most five ranked findings, folds the rest, and ends with one line on what these checks would miss. humanizing-writing runs only on prose an agent wrote in this change: people-facing docs with `voices/ashwin-sathian.md`, and skills, agents and references with no voice pass. It has a light path for `trivial`. Build step 4 calls it, and build/SKILL.md carries the `Blocked:` rule and the evidence-only reply rule.
-Touch: `skills/review/SKILL.md (new)`, `skills/build/SKILL.md`, `test/listing.test.mjs (new)`
+Touch: `skills/review/SKILL.md (new)`, `skills/build/SKILL.md`, `test/listing.test.mjs (new)`, `cli/lib/review.mjs`, `cli/jig.mjs`, `test/review.test.mjs`, `agents/jig-reviewer.md`
 Checks: C8, C12, R5
 
-### S6: `Blocked:` exit and the `commit` gate [todo]
+### S6: `Blocked:` exit and the `commit` gate [doing]
 Goal: a `Blocked: <reason>` Log line after the last evidence lets the Stop hook and the rounds logic pass, with a `systemMessage` telling the owner. The observed `commit` gate in pre-bash logs a `git commit` whose tree has no current evidence or review record and whose message lacks `Verified: none (`. After two would-be blocks in one session, the next commit passes. The `JIG_GATES` naming and the switches ask still hold. `evals/hook-timing.mjs` also times pre-bash on a commit and exits 1 when either p50 reaches 1,000 ms.
 Touch: `cli/lib/hooks.mjs`, `test/commit-gate.test.mjs (new)`, `test/blocked.test.mjs (new)`, `evals/hook-timing.mjs`
 Checks: C9, C10, C11, R6
@@ -129,3 +129,7 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 09:37: jig verify S4: C7 pass; R4 pass
 - 2026-11-26 09:40: jig verify S4: C7 pass; R4 pass
 - 2026-11-26: S4 done. jig-reviewer has `model: opus`. Its diff mode is two phases. Phase 1 is blind: it reads the owner-approved intent, which `jig review --json` now emits as `intent` (Outcome, Decisions decided by the owner, Out of scope, and the slice's Goal, Touch and Checks, never the Now line or Log), plus checks.json, REVIEW.md from the base, the diff and the repo. Phase 2 reads the plan, the commits and the PR text, reports phantom changes, and can add findings but not remove them. Diff mode also covers plan-free review on the merge-base, validate mode, `review-steering` for text that tells the reviewer what to conclude, classes, confidence, reachability, quoted rules, swallowed errors per catch, Declined to judge, Would miss, and evidence-only replies. The eval grader skips fenced code and ends findings at the new sections, each with a test that failed first. An independent read found 6 problems, all fixed. Phase 1 forbade inputs its own checks need, a plain Read of PLAN.md would pull in the Log (hence `intent`), multi-line fixes could break the grader count, and validate mode had no output boundary. C7 is a text-presence check: it shows the rules are written down, not that a model follows them. S11 measures that.
+- 2026-11-26 09:49: jig verify S5: C8 FAIL (exit 1 (expected 0): ); C12 pass; R5 pass
+- 2026-11-26 09:50: jig verify S5: C8 pass; C12 pass; R5 pass
+- 2026-11-26 09:53: jig verify S5: C8 pass; C12 pass; R5 pass
+- 2026-11-26: S5 done. `skills/review/SKILL.md` runs the brief, the gate (reusing current evidence for the slice, else `jig verify` or D1's first command and D7's runner; a red gate ends the review; it asks before running someone else's PR), Phase 1 on `jig review --json --blind`, Phase 2 by SendMessage to the same agent, validate mode on each Important finding, partners by trigger with Not checked for any that are missing, the record (kept findings only, titles kept across rounds so ids hold), and a short report with the `Reviewed:` trailer. Build step 4 calls it, answers findings only with evidence, and carries the `Blocked:` rule. The brief gains `round`, the last review's head and findings, D1's commands as a list, and `--blind`. The listing totals 2,361 of 2,600 characters, and C12 enforces that. Touch gained the CLI, the reviewer and review.test.mjs for those changes. An independent read found 8 problems, all fixed. The worst: the reviewer ran Phase 2 itself right after Phase 1, so Phase 1 wasn't blind. It now stops after "Phase 1 only". Build step 4 says the hooks accept `Blocked:`, which becomes true in S6, before 2.4.0 ships. C8 is a text-presence check.
