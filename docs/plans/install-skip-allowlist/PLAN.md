@@ -1,7 +1,7 @@
 # Declared-install skip from an allowlist
 
 Status: shipped · Tier: brief · Baseline: 005fd92 · Updated: 2026-11-26
-Now: S1 done; PR open, merge and release wait for the owner's yes.
+Now: shipped as 2.4.5 (PR #12).
 
 ## Outcome
 The four gaps the security review of 2.4.4 found ask, and so does any future spelling of shell state, because the skip applies only to commands made of plain installs, plain `cd` and output filters.
@@ -35,3 +35,4 @@ Checks: `node --test test/install-skip-allowlist.test.mjs`, `npm test`
 - 2026-11-26: The background review of the 2.4.5 commit found three more, all real and small: `cd -` (and any option-like target) and a set CDPATH, config files named by env vars weren't hashed, and `~/.config` was dropped when XDG_CONFIG_HOME pointed elsewhere. Fixed with one test covering all four cases (it failed before the fix). `npm test` 394/394, eslint clean.
 - 2026-11-26: The sixth review (on b14fac4) found two gaps. A relative env-named config path (or YARN_RC_FILENAME) now asks, with a test that failed first. Its other finding, that a profile-set CDPATH can redirect a bare `cd web`, conflicts with tests merged in 2.4.3 and 2.4.4, so it goes to the owner under Questions instead of a test edit.
 - 2026-11-26: Owner chose to require `cd ./x` or an absolute path (a bare `cd web` asks). With that yes, three merged assertions that `cd web && npm i astro` stays quiet now use `cd ./web` (declared-installs.test.mjs:160, install-skip-hardening.test.mjs:37-38), and a new test checks that the bare form asks. It failed before the fix.
+- 2026-11-26: Shipped. The owner merged PR #12 and updated the plugin to 2.4.5. v2.4.5 released by the agent on the owner's yes: publish.yml passed, `npm view jig-plan versions` lists 2.4.5, and `npm audit signatures` reports a verified registry signature and attestation. The automated review of ce7ef3a never reported.
