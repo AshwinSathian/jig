@@ -262,29 +262,38 @@ function planDirs(root, base, pd) {
   return [...new Set([pd, configPlansDir(cfg), 'docs/plans', 'docs/plan'].filter(Boolean))];
 }
 
-// Line numbers that start inside a block comment, a template literal or a
-// triple-quoted string, or that open a block comment, so an assertion moved
-// into one doesn't count as kept. A small scanner, not a parser: '' and ""
-// strings end at the line, which is enough to keep `'**/*.js'` from opening
-// a comment. A comment opened mid-line hides what follows (fail closed).
-function commentLines(text) {
-  const out = new Set(); let state = 'code';
-  text.split('\n').forEach((l, n) => {
-    if (state !== 'code' || /^\s*\/\*/.test(l)) out.add(n + 1);
-    let q = null;
+// Each line's code with comments cut out (strings kept, so a changed
+// string is a changed line), and whether the line is hidden: it starts
+// inside a block comment, template literal or triple-quoted string, or
+// after something the scanner can't close. `#` is a comment only in hash-
+// comment languages. A quote still open at the end of a line hides the rest
+// of the file: unsure means hidden (fail closed).
+// ponytail: a scanner, not a tokenizer (regex literals aren't known, so a
+// `/` that starts one can mislead it); a per-language tokenizer if needed.
+const HASH = new Set(['py', 'rb', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml', 'pl', 'r']);
+function scan(text, path) {
+  const hash = HASH.has(ext(path));
+  const out = []; let state = 'code'; let tq = null;
+  for (const l of text.split('\n')) {
+    const hidden = state !== 'code' || /^\s*\/\*/.test(l);
+    let code = ''; let q = null;
     for (let i = 0; i < l.length; i++) {
       const c = l[i]; const two = l.slice(i, i + 2); const three = l.slice(i, i + 3);
+      if (state === 'unsure') break;
       if (state === 'block') { if (two === '*/') { state = 'code'; i++; } continue; }
       if (state === 'tpl') { if (c === '\\') i++; else if (c === '`') state = 'code'; continue; }
-      if (state === 'tq') { if (three === q) { state = 'code'; i += 2; q = null; } continue; }
-      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
-      if (two === '//' || c === '#') break;
+      if (state === 'tq') { if (three === tq) { state = 'code'; i += 2; } continue; }
+      if (q) { code += c; if (c === '\\') code += l[++i] ?? ''; else if (c === q) q = null; continue; }
+      if (two === '//' || (hash && c === '#')) break;
       if (two === '/*') { state = 'block'; i++; continue; }
-      if (three === '"""' || three === "\'\'\'") { state = 'tq'; q = three; i += 2; continue; }
+      if (three === '"""' || three === "\'\'\'") { state = 'tq'; tq = three; i += 2; continue; }
       if (c === '`') { state = 'tpl'; continue; }
       if (c === "'" || c === '"') q = c;
+      code += c;
     }
-  });
+    if (q && !l.endsWith('\\')) state = 'unsure';
+    out.push({ code: code.trim(), hidden });
+  }
   return out;
 }
 
@@ -301,16 +310,13 @@ export function tamperSignals(root, base, files, pd, head = null) {
   // diff lines, so an assertion commented out by an added `/*` counts, and a
   // moved or re-indented one doesn't. New assertions never offset a deleted
   // one, since a rewrite is still a reason to look.
-  const live = (text) => {
-    const hidden = commentLines(text);
-    return text.split('\n').map((l, i) => ({ l: l.replace(/\s*\/\*.*$|\s+\/\/.*$/, '').trim(), at: i + 1 })).filter(({ l, at }) => ASSERTION.test(l) && !/^(?:\/\/|#)/.test(l) && !hidden.has(at));
-  };
+  const live = (text, path) => scan(text, path).map((x, i) => ({ l: x.code, at: i + 1, hidden: x.hidden })).filter(({ l, hidden }) => !hidden && ASSERTION.test(l));
   // A binary test can't be read for assertions, so it's a signal itself.
   for (const f of files) if (isTest(f.path) && f.binary) out.push({ signal: 'test-binary', file: f.path, line: 1, side: 'head' });
   const tests = files.filter((f) => isTest(f.path) && !f.binary);
-  const headLive = new Set(tests.flatMap((f) => live(headText(f.path)).map((x) => x.l)));
+  const headLive = new Set(tests.flatMap((f) => live(headText(f.path), f.path).map((x) => x.l)));
   for (const f of tests) {
-    const gone = live(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => !headLive.has(l));
+    const gone = live(git(root, ['show', `${base}:${f.path}`]) ?? '', f.path).filter(({ l }) => !headLive.has(l));
     if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
   }
   for (const f of files) {
