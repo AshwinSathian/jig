@@ -1,7 +1,7 @@
 # Declared installs don't ask, and jig observe
 
-Status: building · Tier: brief · Baseline: 7c0e77f · Updated: 2026-11-26
-Now: S2 done. Next: PR, CI, then the owner's yes to merge and release.
+Status: shipped · Tier: brief · Baseline: 7c0e77f · Updated: 2026-11-26
+Now: shipped as 2.4.3 (PR #10).
 
 ## Outcome
 Installing a package the repo already declares (`npm i vitest` when the committed package.json lists vitest) no longer asks. Protects, freeze, rules and gate-switch asks are unchanged. `jig observe` prints what observe.jsonl holds: counts by gate and decision, the date range and the top reasons, so the owner can decide on enforcement.
@@ -48,3 +48,4 @@ Checks: `node --test test/declared-installs.test.mjs`, `npm test`
 - 2026-11-26: S2 done. `jig observe` prints events, date range, counts by gate and decision, and the top five reasons with tree ids grouped. declared-installs 18/18 (each new test failed before its code), `npm test` 374/374, eslint clean, no existing test edited. Version 2.4.3. This repo's observe.jsonl is empty, since the plugin here was 2.0.1 until today.
 - 2026-11-26: The background security review of 193a5e2 found three more gaps, all real: a .npmrc committed mid-session passed the HEAD-only status check, a gitignored .npmrc never shows in status, and `export HOME=...;` or `cd /elsewhere &&` before the install redirects config. Fixed with a test each: resolver files are compared with the session start commit as well as the working copy, ignored registry config files count, and a segment that sets a variable, sources a file or cds outside the repo disqualifies the skip (`cd web &&` inside the repo is followed to web/'s manifest). Changed one of this PR's own new assertions: a manifest committed mid-session now makes every install ask for the rest of the session, since it can carry overrides. Not fixed: user-level config (~/.npmrc, ~/.config/pip) outside the repo; jig doesn't read files outside it. declared-installs 20/20, `npm test` 376/376, eslint clean.
 - 2026-11-26: A separate review agent's report on ac95c2e listed 16 bypasses (abbreviated flags such as `--reg=` and `--ind=`, `--userconfig`, `--@scope:registry`, YARN_/BUN_/PIP_/UV_ config env vars, `pip config set`, uv `--overrides` and `-c`, an `.npmrc` written in the same command, and a manifest committed without a plan). Rerun against 96cb7d9: every one asks. Left quiet by choice: `npm i lodash@latest`, the declared package from the default registry at a tag. Pre-existing and unchanged: `pip install -r new.txt`, `pip install -e git+...` and `npm i $PKG`. CI green on 96cb7d9 (Test 20/22/24, Secret scan).
+- 2026-11-26: Shipped. PR #10 merged by the agent on the owner's yes, v2.4.3 released; `npm view jig-plan versions` lists 2.4.3 and `npm audit signatures` reports a verified registry signature and attestation. The review of 96cb7d9 found four more gaps, fixed in 2.4.4 (docs/plans/install-skip-hardening).
