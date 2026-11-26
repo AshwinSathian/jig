@@ -314,8 +314,17 @@ const TAKES_VALUE = {
   pypi: ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '-i', '--index-url'],
 };
 // Flags that don't change which registry, index or files an install reads.
-const PLAIN_FLAGS = ['-D', '--save-dev', '-S', '--save', '-E', '--save-exact', '--exact', '-O', '--save-optional', '--save-peer', '-P', '--save-prod', '--dev', '-d', '-g', '--global', '--no-save', '-W', '--ignore-workspace-root-check', '-U', '--upgrade', '-q', '--quiet', '--user', '--pre'];
+const PLAIN_FLAGS = ['-D', '--save-dev', '-S', '--save', '-E', '--save-exact', '--exact', '-O', '--save-optional', '--save-peer', '-P', '--save-prod', '--dev', '-d', '--no-save', '-W', '--ignore-workspace-root-check', '-U', '--upgrade', '-q', '--quiet', '--user', '--pre'];
 const PLAIN_VALUE = ['-w', '--workspace', '-F', '--filter', '-G', '--group', '--optional'];
+// The only words a plain install may carry, so the shell can't expand or run
+// anything inside one: no glob, brace, tilde, `$`, backtick or `&`. `<` and
+// `>` stay for `pydantic>=2`, which bash reads as a redirect to the file
+// `=2`, so a redirect target is a bare version-like name, or /dev/null.
+const WORD = /^[\w@][\w@./^~=,:+!<>-]*$/;
+const QUOTED = /^(?:"[\w@./^~=,:+!<>*[\]-]*"|'[^']*')$/;
+const REDIRECT = /^\d?(?:>>?|<)(?:&\d|\/dev\/null)?$/;
+const TARGET = /^(?:[\d=][\w.=]*|\/dev\/null)$/;
+const plainWord = (t) => (WORD.test(t) && t.split(/[<>]+/).slice(1).every((x) => TARGET.test(x))) || QUOTED.test(t);
 export function installedPackages(command) {
   const found = [];
   for (const seg of shellSegments(command)) {
@@ -335,9 +344,15 @@ export function installedPackages(command) {
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
         const flag = t.split('=')[0];
-        if (takes.includes(t)) { if (!PLAIN_VALUE.includes(t)) plain = false; i++; continue; }
-        if (/^\d*[<>]/.test(t)) { if (/^\d*[<>]{1,2}&?$/.test(t)) i++; continue; }
-        if (t.startsWith('-')) { if (!PLAIN_FLAGS.includes(flag) && !PLAIN_VALUE.includes(flag)) plain = false; continue; }
+        if (takes.includes(t)) { if (!PLAIN_VALUE.includes(t) || !WORD.test(toks[i + 1] ?? '')) plain = false; i++; continue; }
+        if (/^\d*[<>]/.test(t)) {
+          if (!REDIRECT.test(t) && !plainWord(t)) plain = false;
+          // A bare `>` or `2>` takes the next word as its file.
+          if (/^\d*[<>]{1,2}&?$/.test(t)) { if (!TARGET.test(toks[i + 1] ?? '')) plain = false; i++; }
+          continue;
+        }
+        if (t.startsWith('-')) { if ((!PLAIN_FLAGS.includes(flag) && !PLAIN_VALUE.includes(flag)) || !WORD.test(t.slice(flag.length + 1) || 'x')) plain = false; continue; }
+        if (!plainWord(t)) plain = false;
         if (t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) { plain = false; continue; }
         mine.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
       }
@@ -430,15 +445,21 @@ function declaredNames(root, cwd, eco, rev) {
 // Text anywhere in the command that may point an install at other config.
 const CONFIG_WORDS = /registry|index|find-links|config|\.npmrc|\.yarnrc|bunfig|pip\.conf|uv\.toml/i;
 // Files that can change what a declared name resolves to.
-const RESOLVES = /(?:^|\/)(?:\.npmrc|\.yarnrc(?:\.yml)?|bunfig\.toml|pip\.conf|pip\.ini|uv\.toml|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
-const CONFIG_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml', 'bunfig.toml', 'pip.conf', 'pip.ini', 'uv.toml'];
+// Any path with a dot segment counts too (.pnpmfile.cjs, .yarn/plugins/x):
+// package-manager config is nearly always a dotfile, and a list of names
+// would miss the next one.
+const RESOLVES = /(?:^|\/)\.|(?:^|\/)(?:poetry\.toml|bunfig\.toml|pip\.conf|pip\.ini|uv\.toml|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
+// Ignored files can't use the dot rule (.env is ignored nearly everywhere),
+// so these are named: the config files and the lockfiles.
+const CONFIG_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml', 'bunfig.toml', 'pip.conf', 'pip.ini', 'uv.toml', 'poetry.toml', '.pnpmfile.cjs', '.pnpmfile.mjs', '.pnpmfile.js',
+  'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'bun.lock', 'bun.lockb', 'uv.lock', 'poetry.lock'];
 // True when a file that can redirect a name differs from the session start:
 // changed since then in a commit or in the working copy, or present but
 // ignored by git (an ignored .npmrc never shows in status).
 function resolvesChanged(root, rev) {
   const status = git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
   const since = git(root, ['diff', '--name-only', '-z', rev, 'HEAD']);
-  const ignored = git(root, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ...CONFIG_FILES.map((f) => `:(glob)**/${f}`)]);
+  const ignored = git(root, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ...CONFIG_FILES.map((f) => `:(glob)**/${f}`), ':(glob,exclude)**/node_modules/**']);
   if (status === null || since === null || ignored === null) return true;
   // Status entries are "XY path"; a rename's source follows as its own entry.
   return ignored.length > 0 || [...status.split('\0').flatMap((e) => [e, e.slice(3)]), ...since.split('\0')].some((e) => e && RESOLVES.test(e));
@@ -460,6 +481,9 @@ function segmentDirs(root, cwd, cmd) {
   let dir = cwd;
   const out = [];
   for (const seg of shellSegments(cmd)) {
+    // A segment that spans lines holds a heredoc body, or text read as one
+    // (`<<<EOF`, `"<<X"`), and bash may run those lines.
+    if (seg.replace(/\\\n/g, ' ').includes('\n')) return null;
     if (installedPackages(seg).length) { out.push({ seg, dir }); continue; }
     if (FILTER.test(seg)) continue;
     const cd = seg.match(CD);

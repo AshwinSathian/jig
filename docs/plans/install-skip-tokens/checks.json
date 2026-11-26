@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "checks": [
+    { "id": "C1", "slice": "S1", "kind": "acceptance", "cmd": "node --test test/install-skip-tokens.test.mjs", "expect": { "exit": 0 }, "timeout_s": 120, "fast": true, "protects": ["test/install-skip-tokens.test.mjs"] },
+    { "id": "R1", "slice": "S1", "kind": "regression", "cmd": "npm test", "expect": { "exit": 0 }, "timeout_s": 120, "fast": true }
+  ]
+}

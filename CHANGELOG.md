@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.6 (2026-11-26)
+
+A security review of 2.4.5 found commands that kept the declared-install skip while running something else or installing a different package. Each now asks.
+
+- **Every word after the installer must be on an allowlist:** a known flag, a name or version made of plain characters, a quoted name with no `$` or backtick, or a redirect to `/dev/null`, `&1` or a version-like file (`pydantic>=2`). Command and process substitution (`>$(...)`, `<(...)`), a trailing `&`, globs and braces (`react@*`, `requests[2]`, `react{,}`), a leading `~`, and a redirect to `.npmrc` or an absolute path all ask.
+- **An install whose command spans lines asks.** A here-string (`<<<EOF`) or a `<<` inside quotes was read as a heredoc, and bash ran the lines after it.
+- **`-g` and `--global` ask.** A global install isn't the project's declared package.
+- **A changed path with a dot segment counts as changed config,** which covers `.pnpmfile.cjs` and `.yarn/`. So does `poetry.toml`. An ignored lockfile or pnpmfile outside `node_modules` asks as well.
+
 ## 2.4.5 (2026-11-26)
 
 The declared-install skip now works from an allowlist. 2.4.3 and 2.4.4 tried to list the shell features that could redirect an install, and each security review found one the list missed (`then export`, `read`, `printf -v`, a quoted `cd`).
