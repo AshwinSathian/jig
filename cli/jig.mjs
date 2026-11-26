@@ -8,7 +8,7 @@ import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './l
 import { verifyPlan, changedNote, trailer } from './lib/verify.mjs';
 import { repoRoot } from './lib/git.mjs';
 
-const VERSION = '2.4.2';
+const VERSION = '2.4.3';
 const HELP = `jig ${VERSION}
 
 Usage:
@@ -24,6 +24,7 @@ Usage:
   jig review [--base <ref> | --pr <n>] [--json] [--blind] [--record <findings.json>] [--outcome <id> <outcome>]
                                          The brief a review starts from: base, tree, triggers, REVIEW.md
                                          entries from the base, and the last evidence and review records
+  jig observe                            What observed gates would have asked or blocked (.git/jig/observe.jsonl)
   jig hook <session-start|pre-edit|pre-bash|stop>   Hook entry points (read JSON on stdin)
 
 Exit codes: 0 ok, 1 problems found or checks failed, 2 usage error.`;
@@ -155,6 +156,12 @@ async function main() {
       const b = reviewBrief(root, { base: flags.base ?? null, pr: flags.pr ?? null, blind: flags.blind === 'true' });
       if (b.error) { console.error(`jig review: ${b.error}`); return 2; }
       console.log(flags.json === 'true' ? JSON.stringify(b, null, 2) : formatBrief(b));
+      return 0;
+    }
+
+    case 'observe': {
+      const { observeSummary } = await import('./lib/observe.mjs');
+      console.log(observeSummary(root));
       return 0;
     }
 

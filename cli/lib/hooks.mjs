@@ -5,7 +5,7 @@
 // - append short context, and don't repeat it
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute, dirname, basename } from 'node:path';
-import { repoRoot, stateDir, git, showHead } from './git.mjs';
+import { repoRoot, stateDir, git, headSha } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
 import { evidence, workTree, readJsonl } from './verify.mjs';
@@ -69,6 +69,13 @@ export function sessionStart(input) {
     if (st.data.transcript !== input.transcript_path) { st.data.transcript = input.transcript_path; st.save(); }
   }
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
+  // The commit the session started from, kept once (SessionStart also fires
+  // on resume and compact): what an install of a declared name is judged by.
+  if (repoRoot(root)) {
+    const st = sessionState(root, input);
+    const head = st.data.startHead ? null : headSha(root, { short: false });
+    if (head) { st.data.startHead = head; st.save(); }
+  }
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
   const status = statusSummary(root, { max: 2 });
@@ -305,6 +312,9 @@ const TAKES_VALUE = {
   bun: ['--cwd', '--registry'],
   pypi: ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '-i', '--index-url'],
 };
+// Flags that don't change which registry, index or files an install reads.
+const PLAIN_FLAGS = ['-D', '--save-dev', '-S', '--save', '-E', '--save-exact', '--exact', '-O', '--save-optional', '--save-peer', '-P', '--save-prod', '--dev', '-d', '-g', '--global', '--no-save', '-W', '--ignore-workspace-root-check', '-U', '--upgrade', '-q', '--quiet', '--user', '--pre'];
+const PLAIN_VALUE = ['-w', '--workspace', '-F', '--filter', '-G', '--group', '--optional'];
 export function installedPackages(command) {
   const found = [];
   for (const seg of shellSegments(command)) {
@@ -315,21 +325,28 @@ export function installedPackages(command) {
       const rest = m[m.length - 1] ?? '';
       const takes = TAKES_VALUE[eco === 'npm' ? m[1] : eco] ?? [];
       const toks = rest.trim().split(/\s+/).filter(Boolean);
+      // plain: only flags known not to change where packages come from, and
+      // no env assignment before the installer (see isDeclared).
+      let plain = !/(?:^|\s)(?:env\s|\w+=)/.test(line.slice(0, m.index));
+      const mine = [];
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
-        if (takes.includes(t)) { i++; continue; }
+        const flag = t.split('=')[0];
+        if (takes.includes(t)) { if (!PLAIN_VALUE.includes(t)) plain = false; i++; continue; }
         if (/^\d*[<>]/.test(t)) { if (/^\d*[<>]{1,2}&?$/.test(t)) i++; continue; }
-        if (t.startsWith('-') || t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) continue;
-        found.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
+        if (t.startsWith('-')) { if (!PLAIN_FLAGS.includes(flag) && !PLAIN_VALUE.includes(flag)) plain = false; continue; }
+        if (t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) { plain = false; continue; }
+        mine.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
       }
+      found.push(...mine.map((p) => ({ ...p, plain })));
     }
   }
   return found;
 }
 
 // An install of a name the repo already declares is no decision, so it
-// doesn't ask. Declared means in the committed manifest (HEAD), not the
-// working copy an Edit can change without asking, and only as a plain name
+// doesn't ask. Declared means in the manifest at the session's start commit,
+// not the working copy or a commit the agent made, and only as a plain name
 // with a plain version: an alias (`x@npm:y`), URL, git ref or path asks, in
 // the command or in the manifest. Only local files are read.
 const NPM_CMD = /^((?:@[\w.-]+\/)?[\w.-]+)(?:@[\w.^~<>=*|+-]+)?$/;
@@ -389,14 +406,14 @@ function pyprojectDeclared(text) {
 
 // The names declared in the nearest directory (walking up from cwd to the
 // repo root) whose committed tree has the ecosystem's manifest.
-function declaredNames(root, cwd, eco) {
+function declaredNames(root, cwd, eco, rev) {
   let rel = '';
   try { rel = relative(root, realpathSync(cwd)); } catch { /* cwd gone: start at the root */ }
   if (rel.startsWith('..') || isAbsolute(rel)) rel = '';
   for (let dir = rel; ; dir = dirname(dir) === '.' ? '' : dirname(dir)) {
-    const listed = git(root, ['ls-tree', '--name-only', 'HEAD', ...(dir ? ['--', `${dir}/`] : [])]);
+    const listed = git(root, ['ls-tree', '--name-only', rev, ...(dir ? ['--', `${dir}/`] : [])]);
     const files = (listed ?? '').split('\n').filter(Boolean).map((f) => basename(f));
-    const at = (f) => showHead(root, dir ? `${dir}/${f}` : f) ?? '';
+    const at = (f) => git(root, ['show', `${rev}:${dir ? `${dir}/${f}` : f}`]) ?? '';
     if (eco === 'npm' && files.includes('package.json')) return new Set(npmDeclared(at('package.json')));
     const reqs = files.filter((f) => /^requirements.*\.txt$/.test(f));
     if (eco === 'pypi' && (reqs.length || files.includes('pyproject.toml'))) {
@@ -406,14 +423,22 @@ function declaredNames(root, cwd, eco) {
   }
 }
 
-const OTHER_SOURCE = /--registry|--(?:extra-)?index(?:-url)?\b|--default-index|--find-links|--source\b|(?:^|\s)-[if]\b|npm_config_|\b(?:PIP|UV)_(?:INDEX|EXTRA_INDEX|DEFAULT_INDEX|FIND_LINKS)/i;
+// Text anywhere in the command that may point an install at other config.
+const CONFIG_WORDS = /registry|index|find-links|config|\.npmrc|\.yarnrc|bunfig|pip\.conf|uv\.toml/i;
+// Files that can change what a declared name resolves to.
+const RESOLVES = /(?:^|\/)(?:\.npmrc|\.yarnrc(?:\.yml)?|bunfig\.toml|pip\.conf|pip\.ini|uv\.toml|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
+function resolvesChanged(root) {
+  const out = git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
+  if (out === null) return true;
+  return out.split('\0').some((e) => RESOLVES.test(e.slice(3)));
+}
 
-function isDeclared(root, cwd, p, cache) {
-  if (p.eco !== 'npm' && p.eco !== 'pypi') return false;
+function isDeclared(root, cwd, p, ctx) {
+  if (!p.plain || (p.eco !== 'npm' && p.eco !== 'pypi')) return false;
   const name = p.eco === 'npm' ? p.name.match(NPM_CMD)?.[1] : pyName(p.name);
   if (!name) return false;
-  if (!cache[p.eco]) cache[p.eco] = declaredNames(root, cwd, p.eco);
-  return cache[p.eco].has(name);
+  if (!ctx[p.eco]) ctx[p.eco] = declaredNames(root, cwd, p.eco, ctx.rev);
+  return ctx[p.eco].has(name);
 }
 
 // A command split at unquoted ;, &&, ||, | and newlines. A heredoc body
@@ -522,10 +547,16 @@ export function preBash(input) {
   const cmd = input.tool_input?.command ?? '';
   const root = rootOf(input);
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
-  const cache = {};
-  // A declared name fetched from another registry or index is a new package.
-  const elsewhere = OTHER_SOURCE.test(cmd);
-  const pkgs = installedPackages(cmd).filter((p) => elsewhere || !isDeclared(root, input.cwd ?? root, p, cache));
+  // Declared is read at the commit this session started from, so a manifest
+  // the agent commits mid-session doesn't vouch for itself. It counts only
+  // when nothing that can redirect a name differs from HEAD (registry config,
+  // lockfiles, overrides) and the command names no other config.
+  let pkgs = installedPackages(cmd);
+  const rev = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data.startHead : null;
+  if (rev && !resolvesChanged(root)) {
+    const ctx = { rev };
+    pkgs = pkgs.filter((p) => !isDeclared(root, input.cwd ?? root, p, ctx));
+  }
   if (!pkgs.length) {
     const seg = commitSegment(cmd);
     return seg ? commitGate(input, root, seg) : null;
