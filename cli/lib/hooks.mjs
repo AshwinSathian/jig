@@ -5,7 +5,7 @@
 // - append short context, and don't repeat it
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute, dirname, basename } from 'node:path';
-import { repoRoot, stateDir } from './git.mjs';
+import { repoRoot, stateDir, git, headSha } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
 import { evidence, workTree, readJsonl } from './verify.mjs';
@@ -69,6 +69,13 @@ export function sessionStart(input) {
     if (st.data.transcript !== input.transcript_path) { st.data.transcript = input.transcript_path; st.save(); }
   }
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
+  // The commit the session started from, kept once (SessionStart also fires
+  // on resume and compact): what an install of a declared name is judged by.
+  if (repoRoot(root)) {
+    const st = sessionState(root, input);
+    const head = st.data.startHead ? null : headSha(root, { short: false });
+    if (head) { st.data.startHead = head; st.save(); }
+  }
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
   const status = statusSummary(root, { max: 2 });
@@ -305,6 +312,9 @@ const TAKES_VALUE = {
   bun: ['--cwd', '--registry'],
   pypi: ['-r', '--requirement', '-c', '--constraint', '-e', '--editable', '--prefix', '-i', '--index-url'],
 };
+// Flags that don't change which registry, index or files an install reads.
+const PLAIN_FLAGS = ['-D', '--save-dev', '-S', '--save', '-E', '--save-exact', '--exact', '-O', '--save-optional', '--save-peer', '-P', '--save-prod', '--dev', '-d', '-g', '--global', '--no-save', '-W', '--ignore-workspace-root-check', '-U', '--upgrade', '-q', '--quiet', '--user', '--pre'];
+const PLAIN_VALUE = ['-w', '--workspace', '-F', '--filter', '-G', '--group', '--optional'];
 export function installedPackages(command) {
   const found = [];
   for (const seg of shellSegments(command)) {
@@ -315,16 +325,148 @@ export function installedPackages(command) {
       const rest = m[m.length - 1] ?? '';
       const takes = TAKES_VALUE[eco === 'npm' ? m[1] : eco] ?? [];
       const toks = rest.trim().split(/\s+/).filter(Boolean);
+      // plain: only flags known not to change where packages come from, and
+      // no env assignment before the installer (see isDeclared).
+      let plain = !/(?:^|\s)(?:env\s|\w+=)/.test(line.slice(0, m.index));
+      const mine = [];
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
-        if (takes.includes(t)) { i++; continue; }
+        const flag = t.split('=')[0];
+        if (takes.includes(t)) { if (!PLAIN_VALUE.includes(t)) plain = false; i++; continue; }
         if (/^\d*[<>]/.test(t)) { if (/^\d*[<>]{1,2}&?$/.test(t)) i++; continue; }
-        if (t.startsWith('-') || t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) continue;
-        found.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
+        if (t.startsWith('-')) { if (!PLAIN_FLAGS.includes(flag) && !PLAIN_VALUE.includes(flag)) plain = false; continue; }
+        if (t === '.' || t.startsWith('./') || t.startsWith('/') || t.startsWith('$')) { plain = false; continue; }
+        mine.push({ eco, name: t.replace(/^['"]|['"]$/g, '') });
       }
+      found.push(...mine.map((p) => ({ ...p, plain })));
     }
   }
   return found;
+}
+
+// An install of a name the repo already declares is no decision, so it
+// doesn't ask. Declared means in the manifest at the session's start commit,
+// not the working copy or a commit the agent made, and only as a plain name
+// with a plain version: an alias (`x@npm:y`), URL, git ref or path asks, in
+// the command or in the manifest. Only local files are read.
+const NPM_CMD = /^((?:@[\w.-]+\/)?[\w.-]+)(?:@[\w.^~<>=*|+-]+)?$/;
+const NPM_RANGE = /^[\w.^~<>=*|+\s-]*$/;
+const PY_SPEC = String.raw`(?:===?|[<>!~]=?)\s*[\w.*+!-]+`;
+const PY = new RegExp(String.raw`^([A-Za-z0-9][\w.-]*)\s*(?:\[[\w,.\s-]*\])?\s*(?:${PY_SPEC}\s*(?:,\s*${PY_SPEC}\s*)*)?(?:;.*)?$`);
+const pyName = (s) => s.trim().match(PY)?.[1].toLowerCase().replace(/[-_.]+/g, '-') ?? null;
+
+function npmDeclared(text) {
+  let pkg;
+  try { pkg = JSON.parse(text); } catch { return []; }
+  return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((f) => {
+    const deps = pkg?.[f];
+    if (!deps || typeof deps !== 'object') return [];
+    return Object.entries(deps).filter(([, v]) => typeof v === 'string' && NPM_RANGE.test(v)).map(([k]) => k);
+  });
+}
+
+function requirementsDeclared(text) {
+  return text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, '').trim()).filter((l) => l && !l.startsWith('-')).map(pyName).filter(Boolean);
+}
+
+// The strings at the top level of the TOML array opening at s[i]: inline
+// tables inside it (`{include-group = "x"}`) are skipped.
+function tomlStrings(s, i) {
+  const out = []; let depth = 0; let brace = 0;
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if (c === '"' || c === "'") {
+      const end = s.indexOf(c, i + 1);
+      if (end === -1) return out;
+      if (depth === 1 && !brace) out.push(s.slice(i + 1, end));
+      i = end;
+    } else if (c === '#') { const nl = s.indexOf('\n', i); i = nl === -1 ? s.length : nl; }
+    else if (c === '{') brace++;
+    else if (c === '}') brace--;
+    else if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) return out;
+  }
+  return out;
+}
+
+// [project] dependencies and optional-dependencies, [dependency-groups], and
+// the keys of [tool.poetry.*dependencies] tables (not `python`).
+function pyprojectDeclared(text) {
+  const names = []; let section = '';
+  const re = /^[ \t]*(?:\[\[?\s*([^\]]+?)\s*\]\]?|([\w.-]+|"[^"]+")\s*=\s*(.*))/gm;
+  for (let m; (m = re.exec(text));) {
+    if (m[1] !== undefined) { section = m[1]; continue; }
+    const key = m[2].replace(/"/g, ''); const val = m[3];
+    const arrays = (section === 'project' && key === 'dependencies') || section === 'project.optional-dependencies' || section === 'dependency-groups';
+    if (arrays && val.startsWith('[')) names.push(...tomlStrings(text, m.index + m[0].length - val.length).map(pyName).filter(Boolean));
+    else if (/^tool\.poetry(?:\.group\.[\w-]+)?\.(?:dev-)?dependencies$/.test(section) && key !== 'python' && (/^["']/.test(val) || (val.startsWith('{') && !/\b(?:git|path|url|file)\s*=/.test(val)))) names.push(pyName(key));
+  }
+  return names.filter(Boolean);
+}
+
+const realCwd = (p) => { try { return realpathSync(p); } catch { return p; } };
+
+// The names declared in the nearest directory (walking up from cwd to the
+// repo root) whose committed tree has the ecosystem's manifest.
+function declaredNames(root, cwd, eco, rev) {
+  let rel = relative(root, realCwd(cwd));
+  if (rel.startsWith('..') || isAbsolute(rel)) rel = '';
+  for (let dir = rel; ; dir = dirname(dir) === '.' ? '' : dirname(dir)) {
+    const listed = git(root, ['ls-tree', '--name-only', rev, ...(dir ? ['--', `${dir}/`] : [])]);
+    const files = (listed ?? '').split('\n').filter(Boolean).map((f) => basename(f));
+    const at = (f) => git(root, ['show', `${rev}:${dir ? `${dir}/${f}` : f}`]) ?? '';
+    if (eco === 'npm' && files.includes('package.json')) return new Set(npmDeclared(at('package.json')));
+    const reqs = files.filter((f) => /^requirements.*\.txt$/.test(f));
+    if (eco === 'pypi' && (reqs.length || files.includes('pyproject.toml'))) {
+      return new Set([...reqs.flatMap((f) => requirementsDeclared(at(f))), ...(files.includes('pyproject.toml') ? pyprojectDeclared(at('pyproject.toml')) : [])]);
+    }
+    if (!dir) return new Set();
+  }
+}
+
+// Text anywhere in the command that may point an install at other config.
+const CONFIG_WORDS = /registry|index|find-links|config|\.npmrc|\.yarnrc|bunfig|pip\.conf|uv\.toml/i;
+// Files that can change what a declared name resolves to.
+const RESOLVES = /(?:^|\/)(?:\.npmrc|\.yarnrc(?:\.yml)?|bunfig\.toml|pip\.conf|pip\.ini|uv\.toml|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
+const CONFIG_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml', 'bunfig.toml', 'pip.conf', 'pip.ini', 'uv.toml'];
+// True when a file that can redirect a name differs from the session start:
+// changed since then in a commit or in the working copy, or present but
+// ignored by git (an ignored .npmrc never shows in status).
+function resolvesChanged(root, rev) {
+  const status = git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
+  const since = git(root, ['diff', '--name-only', '-z', rev, 'HEAD']);
+  const ignored = git(root, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ...CONFIG_FILES.map((f) => `:(glob)**/${f}`)]);
+  if (status === null || since === null || ignored === null) return true;
+  // Status entries are "XY path"; a rename's source follows as its own entry.
+  return ignored.length > 0 || [...status.split('\0').flatMap((e) => [e, e.slice(3)]), ...since.split('\0')].some((e) => e && RESOLVES.test(e));
+}
+
+// Where the install runs, or null when the command could change its config:
+// a variable set, a file sourced, or a cd that leaves the repo or can't be
+// read plainly. ponytail: one directory per command (the last cd); track it
+// per segment if monorepo commands chain several cds.
+const SETS = /^[({\s]*(?:\w+=|(?:export|declare|typeset|local|readonly|set|unset|env|source|alias|eval)\b|\.\s)/;
+function installDir(root, cwd, cmd) {
+  let dir = cwd;
+  for (const seg of shellSegments(cmd)) {
+    if (SETS.test(seg)) return null;
+    const cd = seg.match(/^[({\s]*(?:cd|pushd|popd)\b\s*(.*)$/);
+    if (!cd) continue;
+    const to = cd[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (!/^[\w./-]+$/.test(to) || to.split('/').includes('..') || to.startsWith('-')) return null;
+    dir = isAbsolute(to) ? to : join(dir, to);
+    const rel = relative(root, dir);
+    if (rel.startsWith('..') || isAbsolute(rel)) return null;
+  }
+  return dir;
+}
+
+function isDeclared(root, cwd, p, ctx) {
+  if (!p.plain || (p.eco !== 'npm' && p.eco !== 'pypi')) return false;
+  const name = p.eco === 'npm' ? p.name.match(NPM_CMD)?.[1] : pyName(p.name);
+  if (!name) return false;
+  if (!ctx[p.eco]) ctx[p.eco] = declaredNames(root, cwd, p.eco, ctx.rev);
+  return ctx[p.eco].has(name);
 }
 
 // A command split at unquoted ;, &&, ||, | and newlines. A heredoc body
@@ -433,7 +575,18 @@ export function preBash(input) {
   const cmd = input.tool_input?.command ?? '';
   const root = rootOf(input);
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
-  const pkgs = installedPackages(cmd);
+  // Declared is read at the commit this session started from, so a manifest
+  // the agent commits mid-session doesn't vouch for itself. It counts only
+  // when nothing that can redirect a name has changed since then (registry
+  // config, lockfiles, overrides), and the command names no other config,
+  // sets no variable and doesn't leave the repo.
+  let pkgs = installedPackages(cmd);
+  const rev = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data.startHead : null;
+  const dir = rev ? installDir(root, realCwd(input.cwd ?? root), cmd) : null;
+  if (dir && !resolvesChanged(root, rev)) {
+    const ctx = { rev };
+    pkgs = pkgs.filter((p) => !isDeclared(root, dir, p, ctx));
+  }
   if (!pkgs.length) {
     const seg = commitSegment(cmd);
     return seg ? commitGate(input, root, seg) : null;

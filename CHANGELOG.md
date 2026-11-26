@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.3 (2026-11-26)
+
+In auto mode every hook ask becomes a prompt, so jig asks only when there is a decision to make.
+
+- **Installing a package the repo already declares doesn't ask.** The name must be in the nearest package.json (any of the four dependency fields), requirements*.txt or pyproject.toml as of the commit the session started from. The working copy and commits made during the session don't count, because the agent can change those without asking. It still asks for aliases (`x@npm:y`), URLs, git refs and paths, for any flag outside a short list that can't change the source (`-D`, `-E`, `-w`, `-U` and the like), for env assignments, when the command mentions a registry, index or config, when the command sets a variable or leaves the repo with `cd`, and when a registry config, lockfile or manifest has changed since the session started (committed or not) or a registry config is gitignored. Sessions that started before 2.4.3 have no start commit recorded, so they ask as before.
+- **`jig observe`** summarises `.git/jig/observe.jsonl`: counts by gate and decision, the date range, and the top reasons. Use it to decide whether `commit` should enforce.
+- Protected files, the checks freeze, rule files and gate switches ask as before.
+
 ## 2.4.2 (2026-11-26)
 
 Closes four gaps that 2.4.1's fixes opened in the install and protects gates. All four were found by a security review of the 2.4.1 commit.
