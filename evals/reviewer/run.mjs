@@ -6,6 +6,8 @@
 // Grading is in ./grade.mjs (unit-tested, no API spend).
 //
 // Usage:
+//   node evals/reviewer/run.mjs --check              prove the diff cases (./diff.mjs) and list the six arms; spends nothing
+//   node evals/reviewer/run.mjs --diff [--dry]       the diff review eval over the six arms (spends money; --dry first)
 //   node evals/reviewer/run.mjs --dry                one fresh review of one test case; prints its cost and an estimate for the full run
 //   node evals/reviewer/run.mjs [--runs 3] [--set test|tuning|control|all] [--arm plain,fresh,self]
 // This spends API money on your account. Run --dry first.
@@ -30,6 +32,59 @@ const MAX_ROUNDS = 3;
 // Throwaway fixture repos are removed on exit; pass --keep to inspect them.
 const MADE = [];
 process.on('exit', () => { if (!argv.includes('--keep')) for (const d of MADE) rmSync(d, { recursive: true, force: true }); });
+
+// --check: prove every diff case and name the arms. No API calls.
+if (argv.includes('--check')) {
+  const { DIFF_ARMS, diffCases, proveCase } = await import('./diff.mjs');
+  const dcs = await diffCases();
+  let bad = 0;
+  for (const c of dcs) {
+    const r = proveCase(c);
+    if (!r.ok) bad++;
+    console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${c.id} (${c.set}; ${c.kinds.join(', ')})${r.ok ? (r.head ? `: head fails with "${r.head}"` : ': clean on head') : `: ${r.why}`}`);
+  }
+  console.log(`${DIFF_ARMS.length} arms (${DIFF_ARMS.join(', ')}), ${dcs.length} diff cases, ${bad} unproven. no API calls.`);
+  process.exit(bad ? 1 : 0);
+}
+
+// --diff [--dry] [--runs 3] [--arm a,b] [--budget 10]: the diff review eval
+// (six arms, ./diff.mjs). Spends API money; --dry runs one review of one
+// case and prints the cost and the full-run estimate.
+if (argv.includes('--diff')) {
+  const { DIFF_ARMS, diffCases, scaffoldDiff, armPrompt } = await import('./diff.mjs');
+  const { gradeDiff, summarizeDiff } = await import('./grade.mjs');
+  const A = arms({ jigDir: JIG, superpowersDir: '' });
+  const dcs = await diffCases();
+  const chosenArms = opt('arm', DIFF_ARMS.join(',')).split(',');
+  const budget = Number(opt('budget', 10));
+  const tools = (arm) => ['--allowedTools', ['Read', 'Glob', 'Grep', 'Bash(jig:*)', 'Bash(git:*)', 'Bash(node:*)', ...(arm === 'self' ? ['Write', 'Edit'] : []), ...(['blind', 'two-phase', 'full'].includes(arm) ? ['Agent', 'Skill', 'SendMessage'] : []), ...(arm === 'builtin' ? ['Skill'] : [])].join(',')];
+  const env = { ...process.env, PATH: `${join(JIG, 'bin')}:${process.env.PATH}` };
+  let total = 0;
+  const one = async ({ arm, c }) => {
+    if (total > budget) return { arm, id: c.id, set: c.set, grade: { valid: false }, skipped: true, costUsd: 0 };
+    // The self arm starts from base and writes the change itself.
+    const dir = scaffoldDiff(arm === 'self' ? { ...c, head: c.base } : c);
+    MADE.push(dir);
+    const out = await runClaude({ cwd: dir, prompt: armPrompt(arm, c), armFlags: ['plain', 'self', 'builtin'].includes(arm) ? A.none : A.jig, budgetUsd: 2, timeoutMs: 20 * 60_000, extra: tools(arm), env });
+    const cost = usageOf(out.result)?.costUsd ?? 0;
+    total += cost;
+    const text = out.result?.result ?? '';
+    const g = gradeDiff(text, c);
+    if (out.killed || out.result?.is_error) g.valid = false;
+    console.error(`${arm} ${c.id}: recall ${g.recall ?? '-'}, fp ${g.falsePositives}, unknown ${g.unknown}, verdict ${g.verdict}${g.pass ? ' PASS' : ''}  $${cost.toFixed(2)} (total $${total.toFixed(2)})`);
+    return { arm, id: c.id, set: c.set, grade: g, costUsd: cost, text };
+  };
+  const jobs = dry ? [{ arm: 'full', c: dcs.find((c) => c.id === 'injection-sql') }] : chosenArms.flatMap((arm) => dcs.flatMap((c) => Array.from({ length: runs }, () => ({ arm, c }))));
+  const res = await pool(jobs, 4, one);
+  if (dry) console.log(`dry run: one full-arm review cost $${res[0].costUsd.toFixed(2)}; a full run (${DIFF_ARMS.length} arms x ${dcs.length} cases x 3 runs = ${DIFF_ARMS.length * dcs.length * 3} reviews) is about $${(res[0].costUsd * DIFF_ARMS.length * dcs.length * 3).toFixed(0)}, capped by --budget ${budget}.`);
+  else {
+    const outDir = join(HERE, '..', 'results');
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, `review-diff-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.json`), JSON.stringify(res, null, 2));
+    console.log(JSON.stringify(summarizeDiff(res), null, 2));
+  }
+  process.exit(0);
+}
 
 const cases = await Promise.all(readdirSync(join(HERE, 'cases')).filter((f) => f.endsWith('.mjs')).sort()
   .map(async (f) => (await import(pathToFileURL(join(HERE, 'cases', f)).href)).default));

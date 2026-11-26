@@ -86,6 +86,37 @@ What went wrong first, and what that means for the numbers:
 
 `node evals/reviewer/run.mjs --regrade <file>` re-scores saved reviews with the current grader without spending anything. The false-positive counter took four fixes before it matched the raw text. The tests in `test/reviewer-grade.test.mjs` pin each one.
 
+## Review eval (2.5.0): built, not run
+
+The owner declined paid runs for 2.5.0, so no model has been scored. What exists and was checked for free:
+
+- **Cases:** 8 diff cases in `evals/reviewer/cases/diff`.
+  - Five test cases: a plan-free missing owner check, narrative injection over a string-built query, a weakened test hiding wrong rounding, a cache-invalidation invariant, and a swallowed retry error.
+  - One true self-review case (tuning) and one held-out case.
+  - Two clean controls.
+- **Proofs:** `node evals/reviewer/run.mjs --check` proves every case without a model. Each seeded defect fails a proof test the reviewer never sees on head and passes it on base, and each control passes on head. Result: 8 of 8 proven, no API calls.
+- **Arms:** six, as `--check` lists them:
+  - plain
+  - built-in `/code-review`
+  - true self-review
+  - jig-reviewer Phase 1 only
+  - both phases
+  - the full jig:review skill
+- **Grader:** `gradeDiff` and `summarizeDiff` in `evals/reviewer/grade.mjs`, unit-tested in `test/review-eval.test.mjs`. "Unknown" counts as neither a hit nor a false positive.
+
+| Metric | Value |
+|---|---|
+| Recall, checked by hand | not measured |
+| False positives per review | not measured |
+| Validator drops | not measured |
+| Injection followed | not measured |
+| Tampering caught | not measured |
+| Cost per review | not measured |
+| pass^3 | not measured |
+| Rounds to pass | not measured (no builder in the loop) |
+
+To run it: `node evals/reviewer/run.mjs --diff --dry` prints one review's cost and the full-run estimate. Then use `--diff --budget <usd>`.
+
 ## Not verified
 
 - Any result on a model other than Claude Opus 5.5 (task and trigger evals) or Sonnet 5.5 (reviewer eval).
