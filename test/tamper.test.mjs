@@ -220,3 +220,18 @@ test('a removed heredoc tag, a backslash-backtick and multi-line quote openers a
   const k = kinds(reviewBrief(dir, { base: start }));
   for (const want of ['comment-opened test/h_test.rb:3', 'comment-opened test/s.test.sh:1', 'comment-opened test/p_test.rb:1', 'comment-opened test/r_test.rs:1', 'comment-opened test/m_test.go:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
 });
+
+test('quote and closer checks fail closed outside languages with one-line strings', () => {
+  const { dir, g } = repo();
+  writeFileSync(join(dir, 'test/l_test.lua'), 'x = [==[\nnote\n]==]\nassert(1 == 1)\n');
+  writeFileSync(join(dir, 'test/q_test.rb'), 'x = %q(\nnote\n)\nassert_equal 1, 1\n');
+  g('add', '-A'); g('commit', '-qm', 'more');
+  const start = sha(dir);
+  writeFileSync(join(dir, 'test/l_test.lua'), 'x = [==[\nnote\nassert(1 == 1)\n');
+  writeFileSync(join(dir, 'test/q_test.rb'), 'x = %q(\nnote\nassert_equal 1, 1\n');
+  writeFileSync(join(dir, 'test/f.test.fish'), "echo 'open\n");
+  writeFileSync(join(dir, 'test/a.test.js'), "test('x', () => {});\n");
+  const k = kinds(reviewBrief(dir, { base: start }));
+  for (const want of ['comment-opened test/l_test.lua:3', 'comment-opened test/q_test.rb:3', 'comment-opened test/f.test.fish:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
+  assert.ok(!k.some((x) => x.startsWith('comment-opened test/a.test.js')), 'a JS line with paired quotes');
+});

@@ -268,14 +268,18 @@ function planDirs(root, base, pd) {
 // any delimiter counts, and backticks count when an odd number are
 // unescaped. Ruby `=begin` and POD, and heredocs (`<<~EOS`), count too.
 const DELIM = /\/\*|\*\/|"""|\'\'\'|^\s*=[a-z]|<<[~-]?['"]?\w|%[qQwWiIr]?[({[<|!]|\br#+"|\[=*\[/;
-// Languages whose ' and " strings can span lines.
-const MULTILINE_QUOTES = new Set(['rb', 'rs', 'sh', 'bash', 'zsh', 'pl', 'php']);
+// Languages whose ' and " strings stay on one line. Anywhere else an odd
+// quote count, or a removed line that is only closing punctuation, is a
+// signal (fail closed: an unknown language may let a string span lines).
+const ONE_LINE_QUOTES = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'swift', 'scala', 'dart']);
 const odd = (l, c) => (l.split(c).length - 1) % 2 === 1;
 // Raw or escape-stripped: a backslash escapes a backtick in JS, not in Go.
 const delim = (l, path) => DELIM.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
-  || (MULTILINE_QUOTES.has(ext(path)) && ["'", '"'].some((q) => odd(l.replace(/\\./g, ''), q)));
-// A removed line that is one bare word may be a heredoc's closing tag.
-const bareWord = (l) => /^\s*[A-Za-z_]\w*\s*$/.test(l);
+  || (!ONE_LINE_QUOTES.has(ext(path)) && ["'", '"'].some((q) => odd(l.replace(/\\./g, ''), q)));
+// A removed line that may close something opened above it: one bare word
+// (a heredoc tag), or, outside one-line-quote languages, only closing
+// punctuation (`)`, `]==]`, `"#`).
+const closer = (l, path) => /^\s*[A-Za-z_]\w*\s*[;,]?\s*$/.test(l) || (!ONE_LINE_QUOTES.has(ext(path)) && /^\s*[)\]}>|!"#=;,]+\s*$/.test(l));
 
 export function tamperSignals(root, base, files, pd, head = null) {
   const dirs = planDirs(root, base, pd);
@@ -302,7 +306,7 @@ export function tamperSignals(root, base, files, pd, head = null) {
     const first = f.addedAt[0] ?? f.removedAt[0] ?? 1;
     const side = f.addedAt.length ? 'head' : 'base';
     if (isTest(f.path)) {
-      f.removed.forEach((l, i) => { if (delim(l, f.path) || bareWord(l)) out.push({ signal: 'comment-opened', file: f.path, line: f.removedAt[i], side: 'base', text: l.trim() }); });
+      f.removed.forEach((l, i) => { if (delim(l, f.path) || closer(l, f.path)) out.push({ signal: 'comment-opened', file: f.path, line: f.removedAt[i], side: 'base', text: l.trim() }); });
       f.added.forEach((l, i) => {
         if (delim(l, f.path)) out.push({ signal: 'comment-opened', file: f.path, line: f.addedAt[i], text: l.trim() });
         const m = l.match(SKIP);
