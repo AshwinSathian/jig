@@ -404,11 +404,12 @@ function pyprojectDeclared(text) {
   return names.filter(Boolean);
 }
 
+const realCwd = (p) => { try { return realpathSync(p); } catch { return p; } };
+
 // The names declared in the nearest directory (walking up from cwd to the
 // repo root) whose committed tree has the ecosystem's manifest.
 function declaredNames(root, cwd, eco, rev) {
-  let rel = '';
-  try { rel = relative(root, realpathSync(cwd)); } catch { /* cwd gone: start at the root */ }
+  let rel = relative(root, realCwd(cwd));
   if (rel.startsWith('..') || isAbsolute(rel)) rel = '';
   for (let dir = rel; ; dir = dirname(dir) === '.' ? '' : dirname(dir)) {
     const listed = git(root, ['ls-tree', '--name-only', rev, ...(dir ? ['--', `${dir}/`] : [])]);
@@ -427,10 +428,37 @@ function declaredNames(root, cwd, eco, rev) {
 const CONFIG_WORDS = /registry|index|find-links|config|\.npmrc|\.yarnrc|bunfig|pip\.conf|uv\.toml/i;
 // Files that can change what a declared name resolves to.
 const RESOLVES = /(?:^|\/)(?:\.npmrc|\.yarnrc(?:\.yml)?|bunfig\.toml|pip\.conf|pip\.ini|uv\.toml|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
-function resolvesChanged(root) {
-  const out = git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
-  if (out === null) return true;
-  return out.split('\0').some((e) => RESOLVES.test(e.slice(3)));
+const CONFIG_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml', 'bunfig.toml', 'pip.conf', 'pip.ini', 'uv.toml'];
+// True when a file that can redirect a name differs from the session start:
+// changed since then in a commit or in the working copy, or present but
+// ignored by git (an ignored .npmrc never shows in status).
+function resolvesChanged(root, rev) {
+  const status = git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
+  const since = git(root, ['diff', '--name-only', '-z', rev, 'HEAD']);
+  const ignored = git(root, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ...CONFIG_FILES.map((f) => `:(glob)**/${f}`)]);
+  if (status === null || since === null || ignored === null) return true;
+  // Status entries are "XY path"; a rename's source follows as its own entry.
+  return ignored.length > 0 || [...status.split('\0').flatMap((e) => [e, e.slice(3)]), ...since.split('\0')].some((e) => e && RESOLVES.test(e));
+}
+
+// Where the install runs, or null when the command could change its config:
+// a variable set, a file sourced, or a cd that leaves the repo or can't be
+// read plainly. ponytail: one directory per command (the last cd); track it
+// per segment if monorepo commands chain several cds.
+const SETS = /^[({\s]*(?:\w+=|(?:export|declare|typeset|local|readonly|set|unset|env|source|alias|eval)\b|\.\s)/;
+function installDir(root, cwd, cmd) {
+  let dir = cwd;
+  for (const seg of shellSegments(cmd)) {
+    if (SETS.test(seg)) return null;
+    const cd = seg.match(/^[({\s]*(?:cd|pushd|popd)\b\s*(.*)$/);
+    if (!cd) continue;
+    const to = cd[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (!/^[\w./-]+$/.test(to) || to.split('/').includes('..') || to.startsWith('-')) return null;
+    dir = isAbsolute(to) ? to : join(dir, to);
+    const rel = relative(root, dir);
+    if (rel.startsWith('..') || isAbsolute(rel)) return null;
+  }
+  return dir;
 }
 
 function isDeclared(root, cwd, p, ctx) {
@@ -549,13 +577,15 @@ export function preBash(input) {
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
   // Declared is read at the commit this session started from, so a manifest
   // the agent commits mid-session doesn't vouch for itself. It counts only
-  // when nothing that can redirect a name differs from HEAD (registry config,
-  // lockfiles, overrides) and the command names no other config.
+  // when nothing that can redirect a name has changed since then (registry
+  // config, lockfiles, overrides), and the command names no other config,
+  // sets no variable and doesn't leave the repo.
   let pkgs = installedPackages(cmd);
   const rev = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data.startHead : null;
-  if (rev && !resolvesChanged(root)) {
+  const dir = rev ? installDir(root, realCwd(input.cwd ?? root), cmd) : null;
+  if (dir && !resolvesChanged(root, rev)) {
     const ctx = { rev };
-    pkgs = pkgs.filter((p) => !isDeclared(root, input.cwd ?? root, p, ctx));
+    pkgs = pkgs.filter((p) => !isDeclared(root, dir, p, ctx));
   }
   if (!pkgs.length) {
     const seg = commitSegment(cmd);

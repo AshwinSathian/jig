@@ -111,12 +111,12 @@ test('a declared name fetched from another registry or index still asks', () => 
   }
 });
 
-test('a manifest committed during the session is not trusted; one from before it is', () => {
+test('a manifest committed during the session is not trusted until a later session', () => {
   const { dir, g } = npmRepo();
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4', 'evil-pkg': '1' } }));
   g('add', '-A'); g('commit', '-qm', 'add evil-pkg');
   assert.ok(asked(bash(dir, 'npm i evil-pkg')), 'committed after the session started');
-  assert.equal(bash(dir, 'npm i lodash'), null, 'declared at the session start');
+  assert.ok(asked(bash(dir, 'npm i lodash')), 'a manifest changed since the session start can carry overrides, so nothing is skipped');
   start(dir, 'later');
   assert.equal(bash(dir, 'npm i evil-pkg', { session_id: 'later' }), null, 'a later session starts from the new commit');
 });
@@ -133,6 +133,31 @@ test('registry config, a lockfile or the manifest changed in the working copy: i
     writeFileSync(join(dir, file), text);
     assert.ok(asked(bash(dir, 'npm i lodash')), file);
   }
+});
+
+test('registry config committed during the session, or ignored by git, makes installs ask', () => {
+  const a = npmRepo();
+  writeFileSync(join(a.dir, '.npmrc'), 'registry=https://evil.example\n');
+  a.g('add', '-A'); a.g('commit', '-qm', 'npmrc');
+  assert.ok(asked(bash(a.dir, 'npm i lodash')), 'committed after the session started');
+  const b = npmRepo();
+  writeFileSync(join(b.dir, '.gitignore'), '.npmrc\n');
+  b.g('add', '-A'); b.g('commit', '-qm', 'ignore');
+  start(b.dir, 'b');
+  writeFileSync(join(b.dir, '.npmrc'), 'registry=https://evil.example\n');
+  assert.ok(asked(bash(b.dir, 'npm i lodash', { session_id: 'b' })), 'an ignored .npmrc');
+});
+
+test('a variable set or a directory left in an earlier segment makes installs ask; cd within the repo does not', () => {
+  const { dir, g } = npmRepo();
+  mkdirSync(join(dir, 'web'));
+  writeFileSync(join(dir, 'web/package.json'), JSON.stringify({ dependencies: { astro: '^5' } }));
+  g('add', '-A'); g('commit', '-qm', 'web');
+  start(dir, 'c');
+  for (const cmd of ['export HOME=/tmp/evil; npm i lodash', 'HOME=/tmp/evil && npm i lodash', '(HOME=/tmp/x; npm i lodash)', 'cd /tmp && npm i lodash', 'cd .. && npm i lodash', 'cd ~ && npm i lodash', 'cd && npm i lodash', 'source evil.sh; npm i lodash', 'pushd /tmp; npm i lodash']) {
+    assert.ok(asked(bash(dir, cmd, { session_id: 'c' })), cmd);
+  }
+  assert.equal(bash(dir, 'cd web && npm i astro', { session_id: 'c' }), null);
 });
 
 // jig observe: what the owner reads before deciding whether a gate enforces.
