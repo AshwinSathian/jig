@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S8 and S9 done on branch review-redteam (not pushed). Next: S10 (--propose and outcomes) on the same branch. 2.4.6 (PR #14, branch install-skip-tokens) waits on its security review and the owner's merge, and S10 to S12 merge after it. S11 needs a budget yes.
+Now: S10 done. Next: S11 (review eval, unpaid) on branch review-redteam, draft PR #15. 2.4.6 shipped. The owner allows no paid runs, so S11 and S12 run unpaid.
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -92,9 +92,9 @@ Goal: the router reports `tamper` signals (Decisions) with their file:line. When
 Touch: `cli/lib/review.mjs (new)`, `test/tamper.test.mjs (new)`, `skills/review/SKILL.md (new)`, `cli/lib/status.mjs`, `README.md`
 Checks: C16, R9
 
-### S10: Learning from outcomes [todo]
+### S10: Learning from outcomes [done]
 Goal: `jig review --propose` prints suppression proposals (a class marked wrong or didn't-matter twice) and REVIEW.md entry candidates from reverts, fix-forwards and misses the owner names (`--outcome <id> missed`), in the guard skill's format. The reviewer honours `Suppress:` entries from the base. It never writes REVIEW.md.
-Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review-learn.test.mjs (new)`, `skills/guard/SKILL.md`, `agents/jig-reviewer.md`
+Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review-learn.test.mjs (new)`, `skills/guard/SKILL.md`, `agents/jig-reviewer.md`, `skills/review/SKILL.md`, `docs/evidence-schema.md`
 Checks: C17, R10
 
 ### S11: Review eval [todo]
@@ -167,3 +167,7 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 19:14: jig verify S9: C16 pass; R9 pass
 - 2026-11-26: The eighth background security review (of ca1ac15) found that C, C++ and C# raw strings and line continuations were in the one-line set. They're taken out, and any changed test line ending in a backslash is now a signal. The test failed first on the C++ `R"x(` case. Not taken: treating a removed closer-only line as a signal in one-line-quote languages. In JS that flags every removed `});`, and a one-line string can't be closed by a later line.
 - 2026-11-26 19:17: jig verify S9: C16 pass; R9 pass
+- 2026-11-26: Owner merged PR #14 (2.4.6) and said to release, push, and go on with S10 to S12 with no paid runs. review-redteam was rebased onto main (4e9ff58) and pushed as draft PR #15. S10 Touch gains `skills/review/SKILL.md` (the outcome and Suppressed lines) and `docs/evidence-schema.md` (the `missed` outcome fields, which the schema test requires). review-learn.test.mjs failed before the code existed (`does not provide an export named 'proposals'`).
+- 2026-11-26 20:50: jig verify S10: C17 pass; R10 pass
+- 2026-11-26: S10 done. `jig review --outcome <review id> missed --file <path> --note "<what>"` records a defect a review let through. `jig review --propose [--json]` prints proposals and writes nothing. It proposes Suppress entries for a class marked wrong or didnt-matter on two or more findings (latest outcome per finding, more wrong than fixed), but only for style and upkeep classes on an allowlist. It proposes REVIEW.md candidates from misses (ready once two distinct reviews missed it), from reverts of commits a ready review covered (by ancestry, or by the reviewed tree for working-tree reviews and squashes, merges read against their first parent), and from `fix:` commits after a ready review and before the next one. The reviewed tree committed as `fix:` doesn't count. The brief's `reviewMd.suppress` reads REVIEW.md at the plan's Baseline (or the merge-base), never a slice commit, and keeps only allowlisted classes. An edited REVIEW.md is a `rules-edited` tamper signal. The reviewer holds back Nits of a suppressed class and reports a `Suppressed:` line. The jig-reviewer gave fix first, with 6 Important and 4 Nit findings, all fixed. In order: a Suppress line a slice commit adds silenced the next slice, the reviewer honoured security suppressions, the class denylist missed the reviewer's own security classes (now an allowlist), merges and squashes were invisible and a merge revert crashed `--propose`, the reviewed tree committed as `fix:` read as a fix-forward, a miss recorded twice counted as two, the log was scanned whole for every review (now from the oldest reviewed base, memoised), and `--propose` swallowed `--outcome`. The two reviewer items were also numbered 10 and 11 the wrong way round. The four tests for these fixes were written after the fixes. The pre-fix code was never committed, so they weren't shown failing; the Suppress test in this PR was rewritten for the Baseline rule. The install-skip-tokens PLAN.md edit in this diff is its shipped log line, logged above. No round 2.
+- 2026-11-26 20:57: jig verify S10: C17 pass; R10 pass

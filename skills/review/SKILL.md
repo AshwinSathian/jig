@@ -117,6 +117,7 @@ Verdict: <ready | fix first | rethink> · Gate: <the jig verify line, or the com
 Partners: <which ran, on which files>
 Not checked: <each with its reason>
 Tamper: <signals, and the transcript's actions and reasoning scores, or Not checked>
+Suppressed: <from the reviewer, when REVIEW.md suppresses a class>
 Declined to judge: <from the reviewer>
 Would miss: <one line on what these checks would miss here>
 Reviewed: <verdict>, <n> findings (tree <short>)
@@ -128,4 +129,4 @@ The owner's attention is the audit budget, so the top five carry the report. `re
 
 - **The builder answers a finding only with evidence:** a run, or a file:line. A prose rebuttal goes to the owner, never back to the reviewer, because models flip correct answers when asked whether they're sure.
 - **Three rounds, then the owner.** On round 3 with Important findings still open, the reviewer returns `rethink`. Stop and take the approach to the owner.
-- **Outcomes:** when a finding is settled, record it with `jig review --outcome <id> fixed|wrong|intentional|didnt-matter`. The finding ids are in the record. These outcomes are how jig learns which findings were worth raising.
+- **Outcomes:** when a finding is settled, record it with `jig review --outcome <id> fixed|wrong|intentional|didnt-matter`. The finding ids are in the record. When the owner names a defect a review let through, record it against that review's id: `jig review --outcome <review id> missed --file <path> --note "<what it should have caught>"`. `jig review --propose` turns these outcomes, plus reverts and `fix:` commits after a `ready` review, into Suppress and REVIEW.md proposals for the owner. It never writes REVIEW.md.

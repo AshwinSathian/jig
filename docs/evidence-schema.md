@@ -63,9 +63,11 @@ An outcome line:
 | `t` | When it was recorded |
 | `kind` | `outcome` |
 | `finding` | The finding's `id` |
-| `outcome` | `fixed`, `wrong`, `intentional` or `didnt-matter` |
+| `outcome` | `fixed`, `wrong`, `intentional`, `didnt-matter` or `missed` |
 
 The latest outcome for a finding id is the current one.
+
+A `missed` line is about a review, not a finding. It is written by `jig review --outcome <review id> missed --file <path> --note "<what>"`, and it has `review` (the review record's `id`), `file` (where the defect was) and `note` (what the review should have caught) in place of `finding`. `jig review --propose` reads outcome lines and git history and never writes REVIEW.md. It proposes `- Suppress: <class> · Source: <review ids>` entries for style and upkeep classes, and `- When: · Check: · Source:` candidates from misses, reverts and `fix:` commits after a `ready` review. The reviewer reads Suppress entries from REVIEW.md at the plan's Baseline, or the merge-base.
 
 ## observe.jsonl
 
