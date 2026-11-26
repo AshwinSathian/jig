@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S6 doing (`Blocked:` exit and the `commit` gate).
+Now: S7 doing (dogfood and release 2.4.0).
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -72,12 +72,12 @@ Goal: `skills/review/SKILL.md` runs the router, the deterministic gate (and asks
 Touch: `skills/review/SKILL.md (new)`, `skills/build/SKILL.md`, `test/listing.test.mjs (new)`, `cli/lib/review.mjs`, `cli/jig.mjs`, `test/review.test.mjs`, `agents/jig-reviewer.md`
 Checks: C8, C12, R5
 
-### S6: `Blocked:` exit and the `commit` gate [doing]
+### S6: `Blocked:` exit and the `commit` gate [done]
 Goal: a `Blocked: <reason>` Log line after the last evidence lets the Stop hook and the rounds logic pass, with a `systemMessage` telling the owner. The observed `commit` gate in pre-bash logs a `git commit` whose tree has no current evidence or review record and whose message lacks `Verified: none (`. After two would-be blocks in one session, the next commit passes. The `JIG_GATES` naming and the switches ask still hold. `evals/hook-timing.mjs` also times pre-bash on a commit and exits 1 when either p50 reaches 1,000 ms.
 Touch: `cli/lib/hooks.mjs`, `test/commit-gate.test.mjs (new)`, `test/blocked.test.mjs (new)`, `evals/hook-timing.mjs`
 Checks: C9, C10, C11, R6
 
-### S7: Dogfood and release 2.4.0 [todo]
+### S7: Dogfood and release 2.4.0 [doing]
 Goal: jig:review runs on this branch (with the plan), on a chattermeter clone (plan-free) and on the seeded cases. A Log line starting "review dogfood 2.4.0" gives the counts §7 asks for. README gains a Review section, the plan → build → verify → review loop, built-in `/code-review`, `/security-review` and `/simplify` in "How it compares", and review's limits, and nothing else changes. Versions are bumped and the PR is open with CI green.
 Touch: `README.md`, `CHANGELOG.md`, `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `cli/jig.mjs`, `test/release.test.mjs`
 Checks: C13, C14, R7
@@ -133,3 +133,6 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 09:50: jig verify S5: C8 pass; C12 pass; R5 pass
 - 2026-11-26 09:53: jig verify S5: C8 pass; C12 pass; R5 pass
 - 2026-11-26: S5 done. `skills/review/SKILL.md` runs the brief, the gate (reusing current evidence for the slice, else `jig verify` or D1's first command and D7's runner; a red gate ends the review; it asks before running someone else's PR), Phase 1 on `jig review --json --blind`, Phase 2 by SendMessage to the same agent, validate mode on each Important finding, partners by trigger with Not checked for any that are missing, the record (kept findings only, titles kept across rounds so ids hold), and a short report with the `Reviewed:` trailer. Build step 4 calls it, answers findings only with evidence, and carries the `Blocked:` rule. The brief gains `round`, the last review's head and findings, D1's commands as a list, and `--blind`. The listing totals 2,361 of 2,600 characters, and C12 enforces that. Touch gained the CLI, the reviewer and review.test.mjs for those changes. An independent read found 8 problems, all fixed. The worst: the reviewer ran Phase 2 itself right after Phase 1, so Phase 1 wasn't blind. It now stops after "Phase 1 only". Build step 4 says the hooks accept `Blocked:`, which becomes true in S6, before 2.4.0 ships. C8 is a text-presence check.
+- 2026-11-26 09:57: jig verify S6: C9 pass; C10 pass; C11 pass; R6 pass
+- 2026-11-26 10:02: jig verify S6: C9 pass; C10 pass; C11 pass; R6 pass
+- 2026-11-26: S6 done. When a plan's last Log entry is `Blocked: <reason>`, its slice is an accepted end state. The Stop hook skips its tree and rounds checks and sends the owner a `systemMessage` once per session, which an observed gate no longer swallows, and the commit gate lets that slice commit. The `commit` gate in pre-bash finds real commits with a quote-aware splitter (heredoc bodies stay with their segment). It reads `Verified: none (<reason>)` from the commit's own segment or `-F` file, and fires when the working tree has no current passing evidence or review record, only in repos with an active plan or a review record. It's observed by default, `JIG_GATES=enforce:commit` makes it ask, and it lets go after two fires per session. A commit with no message flag is only logged as "message unknown". hook-timing also times pre-bash on a commit (115 ms p50 here) and fails if either p50 reaches 1,000 ms. The diff review gave fix first with 9 findings, all fixed with failing-first tests. The worst: C11's timing runs had written 14 fake commit entries into this repo's real `observe.jsonl`, the file the owner will decide enforcement from. Those entries were removed, and the timing script now restores the file and deletes its session files. Two in-slice assertions in commit-gate.test.mjs changed to match the Decisions ("message unknown" logs only) and the new reason wording.

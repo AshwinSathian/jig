@@ -8,8 +8,8 @@ import { join, relative, isAbsolute, dirname, basename } from 'node:path';
 import { repoRoot, stateDir } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
-import { evidence, workTree } from './verify.mjs';
-import { parsePlan } from './plan.mjs';
+import { evidence, workTree, readJsonl } from './verify.mjs';
+import { parsePlan, logEntries } from './plan.mjs';
 
 const off = (name) => {
   const v = (process.env.JIG_HOOKS_OFF ?? '').split(',').map((s) => s.trim());
@@ -305,14 +305,121 @@ export function installedPackages(command) {
   return found;
 }
 
+// A command split at unquoted ;, &&, ||, | and newlines. A heredoc body
+// stays with the segment that opened it, so its lines aren't commands.
+export function shellSegments(cmd) {
+  const out = [];
+  let cur = ''; let q = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (q) { cur += c; if (c === '\\' && q === '"' && i + 1 < cmd.length) cur += cmd[++i]; else if (c === q) q = null; continue; }
+    if (c === "'" || c === '"') { q = c; cur += c; continue; }
+    if (c === '\\' && i + 1 < cmd.length) { cur += c + cmd[++i]; continue; }
+    const two = cmd.slice(i, i + 2);
+    if (c === '\n') {
+      const h = cur.match(/<<-?\s*(['"]?)([\w.-]+)\1/);
+      if (h) {
+        const rest = cmd.slice(i + 1);
+        const end = rest.search(new RegExp(`^\\s*${h[2].replace(/[.-]/g, '\\$&')}\\s*$`, 'm'));
+        const body = end === -1 ? rest : rest.slice(0, end);
+        cur += `\n${body}`;
+        i += body.length + (end === -1 ? 0 : (rest.slice(end).match(/^.*$/m)?.[0].length ?? 0));
+      }
+      out.push(cur); cur = ''; continue;
+    }
+    if (c === ';' || two === '&&' || two === '||' || c === '|') { if (two === '&&' || two === '||') i++; out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+// A real `git commit` segment: allowing a subshell, sudo/env/command/time/
+// nice/exec, env assignments, a path to git, and git's own options before the
+// subcommand; `sh -c "..."` is looked into. A dry run isn't a commit.
+// Misses: aliases, functions, scripts and `eval`.
+const PREFIX = String.raw`(?:[({]\s*)*(?:(?:sudo|env|command|time|nice|exec)\s+(?:-\S+\s+)*|\w+=\S*\s+)*`;
+const GITOPT = String.raw`(?:-[cC]\s+(?:"[^"]*"|'[^']*'|\S+)|--(?:git-dir|work-tree|namespace)(?:=\S+|\s+\S+)|--[\w-]+(?:=\S+)?)`;
+const COMMIT = new RegExp(String.raw`^${PREFIX}(?:\S*/)?\\?git(?:\s+${GITOPT})*\s+commit(?=\s|$|[)}])`);
+export function commitSegment(cmd) {
+  for (const seg of shellSegments(cmd)) {
+    const inner = seg.match(/^(?:\S*\/)?(?:ba|z|da)?sh\s+-c\s+(['"])([\s\S]*)\1\s*$/);
+    if (inner) { const s = commitSegment(inner[2]); if (s) return s; continue; }
+    if (COMMIT.test(seg) && !/\s--dry-run\b/.test(seg)) return seg;
+  }
+  return null;
+}
+export const isGitCommit = (cmd) => commitSegment(cmd) !== null;
+const VERIFIED_NONE = /Verified: none \([^)\s][^)]*\)/;
+
+// What the commit's own message says, read from its segment (-m, a heredoc)
+// or a -F file. null when there's no message flag (an editor will open, or
+// --no-edit reuses a message jig can't see).
+function commitMessage(seg, cwd) {
+  if (VERIFIED_NONE.test(seg)) return { none: true };
+  const f = seg.match(/(?:^|\s)(?:-[a-zA-Z]*F\s*|--file(?:=|\s+))(?:"([^"]+)"|'([^']+)'|([^\s'"]+))/);
+  const file = f ? (f[1] ?? f[2] ?? f[3]) : null;
+  if (file && file !== '-') {
+    const p = isAbsolute(file) ? file : join(cwd, file);
+    try {
+      const st = lstatSync(p);
+      if (st.isFile() && st.size <= 65536) return { none: VERIFIED_NONE.test(readFileSync(p, 'utf8')) };
+    } catch { /* unreadable: judged as a message without the line */ }
+    return { none: false };
+  }
+  if (file || /(?:^|\s)(?:-[a-zA-Z]*m|--message)(?=[\s=]|$|["'])/.test(seg)) return { none: false };
+  return null;
+}
+
+// The commit gate, observed by default (JIG_GATES=enforce:commit to ask).
+// It only looks at repos where jig is in use: an active plan with
+// checks.json, or a review record. It compares the working-tree fingerprint,
+// not the index, so a commit that leaves verified changes unstaged can pass.
+function commitGate(input, root, seg) {
+  const plans = activePlans(root);
+  const reviewRecs = readJsonl(root, 'reviews.jsonl');
+  const used = plans.some(({ path }) => loadChecks(path).exists) || reviewRecs.length > 0;
+  // A slice the builder stopped as Blocked may commit its work in progress.
+  if (!used || plans.some(({ plan }) => doingSlice(plan) && blockedReason(plan))) return null;
+  const msg = commitMessage(seg, input.cwd ?? root);
+  if (msg?.none) return null;
+  const tree = workTree(root);
+  if (!tree) return null;
+  const passed = (r) => (r.results ?? []).length > 0 && r.results.every((x) => x.pass);
+  if (evidence(root).some((r) => r.tree === tree && passed(r)) || reviewRecs.some((r) => !r.kind && r.tree === tree)) return null;
+  const why = `jig: this commit's tree (${tree.slice(0, 7)}) has no current passing evidence or review record`;
+  const fix = 'Run `jig verify --record` or jig:review first, or say in the message why nothing was verified.';
+  // No message flag: the message can't be read, so this is only logged.
+  if (!msg) { observe(input, 'pre-bash', 'commit', ask('commit', `${why}, and it has no message flag (message unknown: an editor will open or a message is reused). Logged only.`)); return null; }
+  const st = sessionState(root, input);
+  // A gate that keeps firing gets switched off: two per session, then it lets go.
+  const fired = st.data.commitFired ?? 0;
+  if (fired >= 2) return null;
+  st.data.commitFired = fired + 1;
+  st.save();
+  return ask('commit', `${why}, and its message has no "Verified: none (<reason>)" line. ${fix}`);
+}
+
 export function preBash(input) {
   const cmd = input.tool_input?.command ?? '';
   const root = rootOf(input);
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
   const pkgs = installedPackages(cmd);
-  if (!pkgs.length) return null;
+  if (!pkgs.length) {
+    const seg = commitSegment(cmd);
+    return seg ? commitGate(input, root, seg) : null;
+  }
   const names = pkgs.map((p) => `${p.name} (${p.eco})`).join(', ');
   return ask('install', `jig: this adds ${names}. A new dependency is a one-way door: check that the name is the real package (hallucinated names get registered by attackers), its age and downloads, and record it in the plan's Decisions.`);
+}
+
+// The reason when a plan's last Log entry is `Blocked: <reason>`: the
+// builder stopped on purpose (a spec conflict, a check that can't pass here,
+// a missing service) and the owner decides. A later verify line, or any other
+// entry after it, ends the block.
+export function blockedReason(plan) {
+  const last = logEntries(plan).pop() ?? '';
+  return last.match(/^-\s*\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?:\s*Blocked:\s*(\S.*)$/)?.[1] ?? null;
 }
 
 export function stop(input) {
@@ -320,7 +427,21 @@ export function stop(input) {
   if ((input.background_tasks ?? []).length) return null;
   const root = rootOf(input);
   const st = sessionState(root, input);
-  const plans = activePlans(root).filter(({ plan }) => doingSlice(plan));
+  const doing = activePlans(root).filter(({ plan }) => doingSlice(plan));
+  // Blocked plans are an accepted end state: no tree or rounds checks. The
+  // owner hears about each once per session.
+  const blocked = doing.map(({ path, plan }) => ({ rel: relative(root, path), why: blockedReason(plan) })).filter((b) => b.why);
+  const told = new Set(st.data.blockedTold ?? []);
+  const news = blocked.filter((b) => !told.has(`${b.rel}\0${b.why}`));
+  const out = stopChecks(root, st, doing.filter(({ path }) => !blocked.some((b) => b.rel === relative(root, path))));
+  if (!news.length) return out;
+  st.data.blockedTold = [...told, ...news.map((b) => `${b.rel}\0${b.why}`)].slice(-20);
+  st.save();
+  const systemMessage = news.map((b) => `jig: ${b.rel} is blocked: ${b.why}. The agent stopped on purpose; this needs your decision.`).join(' ');
+  return out ? { ...out, systemMessage } : { systemMessage };
+}
+
+function stopChecks(root, st, plans) {
   if (!plans.length) return null;
   // Only when a checks.json exists; brief plans state checks as commands.
   const withChecks = plans.map(({ path, plan }) => ({ path, slice: doingSlice(plan), checks: loadChecks(path) })).filter((x) => x.checks.exists && Array.isArray(x.checks.data?.checks));
@@ -395,13 +516,18 @@ const HANDLERS = { 'session-start': sessionStart, 'pre-edit': preEdit, 'pre-bash
 // JIG_GATES=observe logs every ask and block to .git/jig/observe.jsonl and
 // prints nothing; observe:<gate>,<gate> does that for the named gates only.
 // Use it to count false positives before a gate enforces. Gates: protects,
-// freeze, install, tree, rounds, and rules (asks for CI workflows, logs the
-// other rule files).
+// freeze, install, tree, rounds, rules (asks for CI workflows, logs the
+// other rule files), and commit (observed unless JIG_GATES=enforce:commit).
+// Gates that ship observed until the owner decides from observe.jsonl.
+// JIG_GATES=enforce:<gate>,... makes one ask.
+const OBSERVED_BY_DEFAULT = ['commit'];
 function observed(gate) {
   const v = (process.env.JIG_GATES ?? '').trim();
   if (v === 'observe') return true;
-  const m = v.match(/^observe:(.*)$/);
-  return Boolean(m && m[1].split(',').map((s) => s.trim()).includes(gate));
+  const m = v.match(/^(observe|enforce):(.*)$/);
+  const named = m ? m[2].split(',').map((s) => s.trim()).includes(gate) : false;
+  if (m?.[1] === 'observe' && named) return true;
+  return OBSERVED_BY_DEFAULT.includes(gate) && !(m?.[1] === 'enforce' && named);
 }
 
 function observe(input, hook, gate, out) {
@@ -426,8 +552,11 @@ export function runHook(name) {
     const out = fn(input);
     if (out) {
       const { gate, ...rest } = out;
-      if (gate && observed(gate)) observe(input, name, gate, rest);
-      else emit(rest);
+      if (gate && observed(gate)) {
+        observe(input, name, gate, rest);
+        // A message for the owner is never observed away with the gate.
+        if (rest.systemMessage) emit({ systemMessage: rest.systemMessage });
+      } else emit(rest);
     }
   } catch (e) {
     // Guardrails, not a security boundary (Bash can edit files without Edit):

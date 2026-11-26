@@ -134,7 +134,6 @@ export function diffFiles(root, base, head = null) {
 
 // ---------- triggers ----------
 
-const lc = (p) => p.toLowerCase();
 const ext = (p) => (p.match(/\.([^./]+)$/)?.[1] ?? '').toLowerCase();
 // No .txt: requirements.txt and CMakeLists.txt are code, not prose.
 const DOC_EXT = new Set(['md', 'mdx', 'rst', 'adoc']);
