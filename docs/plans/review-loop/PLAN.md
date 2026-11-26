@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: 2.4.0 is in PR #7 (CI green), waiting on the owner to merge and release. S8 (red team) is next, from main after the merge. S11 needs a budget yes.
+Now: 2.4.0 merged to main (PR #7), with the README run folded in. Next: the v2.4.0 release (owner), then S8 (red team) from main. S11 needs a budget yes.
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -141,3 +141,4 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 10:12: jig verify S7: C13 pass; C14 pass; R7 pass
 - 2026-11-26: PR #7 opened. CI's first run failed only on eslint: `URL` was used without an import in test/review-records.test.mjs, which an eslint run here would have caught, but `npx --yes eslint` was denied in this session. The fix imports it from `node:url`.
 - 2026-11-26: S7 done. PR #7 passes CI (Test 20, 22 and 24, and Secret scan). The owner merges, creates the v2.4.0 release, and publish.yml publishes it. Two owner calls are in the PR: whether the `commit` gate enforces, and whether README's Hooks and CLI sections should list the `commit` gate and `jig review` (left as asked; they're described in the Review section). Owner proposals from the dogfood, not committed: two chattermeter doc fixes in `docs/plan/open-questions.md`. OQ-13 names `invitations.ts` where `removeMember` lives in `packages/db/src/lib/members.ts`, and OQ-22 and OQ-23 have table rows but no entries.
+- 2026-11-26: The owner chose a README over a site and asked to merge. PR #7 now also carries the README run (docs/plans/readme), the `jig verify` deciding-line fix, and the Hooks and CLI sections covering `jig review`, the `commit` gate and `Blocked:`. CI green on Node 20, 22 and 24 after one fix: Node 20 prints `node --test` as TAP when piped, so the demo's check became a plain node:assert script.
