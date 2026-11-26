@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { URL } from 'node:url';
 import { planRepo, hook, base, CLI } from './helpers.mjs';
 import { recordReview, recordOutcome, findingId, reviewBrief, reviews } from '../cli/lib/review.mjs';
 import { verifyPlan } from '../cli/lib/verify.mjs';
