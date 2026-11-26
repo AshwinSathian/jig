@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S9 done on branch review-redteam. Next: S10 (--propose and outcomes). 2.4.6 (PR #14) waits on the owner. S11 needs a budget yes.
+Now: S8 and S9 done on branch review-redteam (not pushed). Next: S10 (--propose and outcomes) on the same branch. 2.4.6 (PR #14, branch install-skip-tokens) waits on its security review and the owner's merge, and S10 to S12 merge after it. S11 needs a budget yes.
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
