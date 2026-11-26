@@ -6,7 +6,7 @@ import { readFileSync, lstatSync, appendFileSync, readdirSync, statSync } from '
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { git, isCommit, stateDir } from './git.mjs';
-import { activePlans, doingSlice, plansDir } from './status.mjs';
+import { activePlans, doingSlice, plansDir, configPlansDir } from './status.mjs';
 import { lastEvidence, workTree, readJsonl, evidence } from './verify.mjs';
 import { loadChecks } from './checks.mjs';
 import { section } from './plan.mjs';
@@ -242,8 +242,8 @@ const checksOrCi = TRIGGERS.find((t) => t.id === 'tests-or-checks').match;
 
 // Protected paths as the base's checks.json files list them, so a change
 // can't unprotect a file and edit it in one go.
-function baseProtects(root, base, pd) {
-  const listed = lines(git(root, ['ls-tree', '-r', '--name-only', base, '--', `${pd}/`]));
+function baseProtects(root, base, dirs) {
+  const listed = lines(git(root, ['ls-tree', '-r', '--name-only', base, '--', ...dirs.map((d) => `${d}/`)]));
   const protects = []; const unreadable = [];
   for (const p of listed.filter((x) => x.endsWith('/checks.json'))) {
     let c = null;
@@ -254,18 +254,51 @@ function baseProtects(root, base, pd) {
   return { protects, unreadable };
 }
 
-export function tamperSignals(root, base, files, pd) {
-  const { protects, unreadable } = baseProtects(root, base, pd);
+// Every place plans could live, at the base and now: the working tree's
+// .jig.json is part of the change, so it can't move checks out of sight.
+function planDirs(root, base, pd) {
+  let cfg = null;
+  try { cfg = JSON.parse(git(root, ['show', `${base}:.jig.json`]) ?? ''); } catch { /* none at the base */ }
+  return [...new Set([pd, configPlansDir(cfg), 'docs/plans', 'docs/plan'].filter(Boolean))];
+}
+
+// Line numbers inside a /* ... */ block that opens at the start of a line,
+// so an assertion moved into a comment doesn't count as kept.
+// ponytail: line-start blocks only, so glob strings ('**/*.js') don't open
+// one; a comment opened mid-line is missed. Use a tokenizer if that matters.
+function commentLines(text) {
+  const out = new Set(); let open = false;
+  text.split('\n').forEach((l, i) => {
+    if (!open && /^\s*\/\*/.test(l) && !l.includes('*/', l.indexOf('/*') + 2)) open = true;
+    else if (open && l.includes('*/')) { open = false; out.add(i + 1); return; }
+    if (open) out.add(i + 1);
+  });
+  return out;
+}
+
+export function tamperSignals(root, base, files, pd, head = null) {
+  const dirs = planDirs(root, base, pd);
+  const { protects, unreadable } = baseProtects(root, base, dirs);
   const out = unreadable.map((p) => ({ signal: 'checks-unreadable', file: p, line: 1, side: 'base' }));
-  // Each removed assertion that the change doesn't re-add in any test file.
-  // Pooling across files means a moved or re-indented one isn't reported;
-  // new assertions never offset a deleted one, since a rewrite is still a
-  // reason to look.
-  const tests = files.filter((f) => isTest(f.path));
-  const asserts = (f, side) => f[side].filter((l) => ASSERTION.test(l)).map((l) => l.trim());
-  const addedAll = new Set(tests.flatMap((f) => asserts(f, 'added')));
-  const goneBy = tests.map((f) => ({ f, gone: f.removed.map((l, i) => ({ l: l.trim(), at: f.removedAt[i] })).filter(({ l }) => ASSERTION.test(l) && !addedAll.has(l)) }));
-  for (const { f, gone } of goneBy) if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
+  const headText = (p) => {
+    if (head) return git(root, ['show', `${head}:${p}`]) ?? '';
+    try { const st = lstatSync(join(root, p)); return st.isFile() && st.size <= MAX_UNTRACKED ? readFileSync(join(root, p), 'utf8') : ''; } catch { return ''; }
+  };
+  // Each live assertion at the base, in a changed test file, that isn't live
+  // anywhere in the head's changed test files. Whole files are compared, not
+  // diff lines, so an assertion commented out by an added `/*` counts, and a
+  // moved or re-indented one doesn't. New assertions never offset a deleted
+  // one, since a rewrite is still a reason to look.
+  const live = (text) => {
+    const hidden = commentLines(text);
+    return text.split('\n').map((l, i) => ({ l: l.trim(), at: i + 1 })).filter(({ l, at }) => ASSERTION.test(l) && !/^(?:\/\/|#)/.test(l) && !hidden.has(at));
+  };
+  const tests = files.filter((f) => isTest(f.path) && !f.binary);
+  const headLive = new Set(tests.flatMap((f) => live(headText(f.path)).map((x) => x.l)));
+  for (const f of tests) {
+    const gone = live(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => !headLive.has(l));
+    if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
+  }
   for (const f of files) {
     const first = f.addedAt[0] ?? f.removedAt[0] ?? 1;
     const side = f.addedAt.length ? 'head' : 'base';
@@ -281,7 +314,8 @@ export function tamperSignals(root, base, files, pd) {
         else if (!isTest(f.path) && SHELL_PASS.test(l)) out.push({ signal: 'swallowed-failure', file: f.path, line: f.addedAt[i], text: l.trim() });
       });
     }
-    if ((f.path.startsWith(`${pd}/`) || f.path.startsWith('docs/plans/')) && f.path.endsWith('/checks.json')) out.push({ signal: 'checks-edited', file: f.path, line: first, side });
+    if (f.path === '.jig.json') out.push({ signal: 'config-edited', file: f.path, line: first, side });
+    if (dirs.some((d) => f.path.startsWith(`${d}/`)) && f.path.endsWith('/checks.json')) out.push({ signal: 'checks-edited', file: f.path, line: first, side });
     // A protected file the change creates is the slice's own new test.
     else if (protects.some((p) => pathMatches(f.path, p)) && git(root, ['cat-file', '-e', `${base}:${f.path}`]) !== null) out.push({ signal: 'protected', file: f.path, line: first, side });
   }
@@ -479,7 +513,7 @@ export function reviewBrief(root, opts = {}) {
     stats: { files: files.length, adds: files.reduce((n, f) => n + f.adds, 0), dels: files.reduce((n, f) => n + f.dels, 0) },
     files: files.map(({ path, adds, dels, binary, untracked }) => ({ path, adds, dels, ...(binary ? { binary } : {}), ...(untracked ? { untracked } : {}) })),
     triggers: triggersFor(files, { plansDir: pd }),
-    tamper: tamperSignals(root, b.base, files, pd),
+    tamper: tamperSignals(root, b.base, files, pd, b.head ?? null),
     // A working-tree review only: a PR or committed range has no session.
     transcript: b.head || b.pr ? null : transcriptInfo(root, b.base),
     reviewMd: reviewText === null ? null : reviewMdEntries(reviewText, files),

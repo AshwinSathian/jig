@@ -160,3 +160,28 @@ test('an unreadable checks.json at the base is a signal, not silence', () => {
   writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n');
   assert.ok(kinds(reviewBrief(dir, { base: start })).includes('checks-unreadable docs/plans/demo/checks.json:1'));
 });
+
+test('a plansDir changed in the working tree does not hide the base checks.json', () => {
+  const { dir, start } = repo();
+  writeFileSync(join(dir, '.jig.json'), JSON.stringify({ plansDir: 'other/plans' }));
+  mkdirSync(join(dir, 'other/plans'), { recursive: true });
+  writeFileSync(join(dir, 'test/a.accept.test.js'), '// spec, weakened\n');
+  writeFileSync(join(dir, 'docs/plans/demo/checks.json'), '{}');
+  const k = kinds(reviewBrief(dir, { base: start }));
+  for (const want of ['config-edited .jig.json:1', 'protected test/a.accept.test.js:1', 'checks-edited docs/plans/demo/checks.json:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
+});
+
+test('an assertion re-added inside a block comment still counts as removed', () => {
+  const { dir, start } = repo();
+  writeFileSync(join(dir, 'test/b.test.js'), [
+    "import assert from 'node:assert';",
+    "test('adds', () => {",
+    '  assert.equal(add(1, 2), 3);',
+    '  /*',
+    '  assert.equal(add(-1, 1), 0);',
+    '  */',
+    '});',
+    '',
+  ].join('\n'));
+  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
+});
