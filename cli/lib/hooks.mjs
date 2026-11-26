@@ -5,6 +5,7 @@
 // - append short context, and don't repeat it
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, lstatSync, readlinkSync, appendFileSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute, dirname, basename } from 'node:path';
+import { createHash } from 'node:crypto';
 import { repoRoot, stateDir, git, headSha } from './git.mjs';
 import { activePlans, doingSlice, sliceTouch, statusSummary, plansDir } from './status.mjs';
 import { loadChecks, validateChecks, snapshot, loosened, applyEdit } from './checks.mjs';
@@ -74,7 +75,7 @@ export function sessionStart(input) {
   if (repoRoot(root)) {
     const st = sessionState(root, input);
     const head = st.data.startHead ? null : headSha(root, { short: false });
-    if (head) { st.data.startHead = head; st.save(); }
+    if (head) { st.data.startHead = head; st.data.userConfig = userConfig(); st.save(); }
   }
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
@@ -327,7 +328,7 @@ export function installedPackages(command) {
       const toks = rest.trim().split(/\s+/).filter(Boolean);
       // plain: only flags known not to change where packages come from, and
       // no env assignment before the installer (see isDeclared).
-      let plain = !/(?:^|\s)(?:env\s|\w+=)/.test(line.slice(0, m.index));
+      let plain = !SETS.test(line.slice(0, m.index)) && !CD.test(line.slice(0, m.index));
       const mine = [];
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
@@ -410,7 +411,7 @@ const realCwd = (p) => { try { return realpathSync(p); } catch { return p; } };
 // repo root) whose committed tree has the ecosystem's manifest.
 function declaredNames(root, cwd, eco, rev) {
   let rel = relative(root, realCwd(cwd));
-  if (rel.startsWith('..') || isAbsolute(rel)) rel = '';
+  if (rel.startsWith('..') || isAbsolute(rel)) return new Set();
   for (let dir = rel; ; dir = dirname(dir) === '.' ? '' : dirname(dir)) {
     const listed = git(root, ['ls-tree', '--name-only', rev, ...(dir ? ['--', `${dir}/`] : [])]);
     const files = (listed ?? '').split('\n').filter(Boolean).map((f) => basename(f));
@@ -441,32 +442,53 @@ function resolvesChanged(root, rev) {
   return ignored.length > 0 || [...status.split('\0').flatMap((e) => [e, e.slice(3)]), ...since.split('\0')].some((e) => e && RESOLVES.test(e));
 }
 
-// Where the install runs, or null when the command could change its config:
-// a variable set, a file sourced, or a cd that leaves the repo or can't be
-// read plainly. ponytail: one directory per command (the last cd); track it
-// per segment if monorepo commands chain several cds.
-const SETS = /^[({\s]*(?:\w+=|(?:export|declare|typeset|local|readonly|set|unset|env|source|alias|eval)\b|\.\s)/;
-function installDir(root, cwd, cmd) {
+// Each segment with the directory it runs in, or null when the command could
+// change install config in a way jig can't follow: a variable set, a builtin
+// that changes shell state, sudo, or a cd that leaves the repo, goes through
+// a subshell, or can't be read plainly. Fails closed on any of these words
+// anywhere in a segment that isn't an install.
+const SETS = /(?:^|[\s({!`])(?:[A-Za-z_]\w*=|(?:export|declare|typeset|local|readonly|set|unset|env|source|alias|eval|sudo|doas|popd)(?=\s|$|[;)}])|\.\s)/;
+const CD = /(?:^|[\s({!])(?:cd|pushd)(?:\s+(.*))?$/;
+function segmentDirs(root, cwd, cmd) {
   let dir = cwd;
+  const out = [];
   for (const seg of shellSegments(cmd)) {
+    if (installedPackages(seg).length) { out.push({ seg, dir }); continue; }
     if (SETS.test(seg)) return null;
-    const cd = seg.match(/^[({\s]*(?:cd|pushd|popd)\b\s*(.*)$/);
+    const cd = seg.match(CD);
     if (!cd) continue;
-    const to = cd[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (/[(){}]/.test(seg)) return null;
+    const to = (cd[1] ?? '').trim().replace(/^(['"])(.*)\1$/, '$2');
     if (!/^[\w./-]+$/.test(to) || to.split('/').includes('..') || to.startsWith('-')) return null;
-    dir = isAbsolute(to) ? to : join(dir, to);
+    try { dir = realpathSync(isAbsolute(to) ? to : join(dir, to)); } catch { return null; }
     const rel = relative(root, dir);
     if (rel.startsWith('..') || isAbsolute(rel)) return null;
   }
-  return dir;
+  return out;
 }
 
-function isDeclared(root, cwd, p, ctx) {
+// User-level config that can point installs elsewhere. Fingerprinted at
+// SessionStart; a change since then means jig can't vouch for the source.
+function userConfig() {
+  const h = process.env.HOME ?? '';
+  const files = ['.npmrc', '.yarnrc', '.yarnrc.yml', '.bunfig.toml', '.config/pip/pip.conf', '.pip/pip.conf', 'Library/Application Support/pip/pip.conf', '.config/uv/uv.toml', '.config/pip/pip.ini']
+    .map((f) => join(h, f)).concat(join(dirname(process.execPath), '..', 'etc', 'npmrc'));
+  const hash = createHash('sha256');
+  for (const f of files) {
+    hash.update(f).update('\0');
+    try { hash.update(readFileSync(f)); } catch (e) { hash.update(`missing:${e.code}`); }
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function isDeclared(root, cwd, p, cache, rev) {
   if (!p.plain || (p.eco !== 'npm' && p.eco !== 'pypi')) return false;
   const name = p.eco === 'npm' ? p.name.match(NPM_CMD)?.[1] : pyName(p.name);
   if (!name) return false;
-  if (!ctx[p.eco]) ctx[p.eco] = declaredNames(root, cwd, p.eco, ctx.rev);
-  return ctx[p.eco].has(name);
+  const key = `${p.eco}\0${cwd}`;
+  if (!cache[key]) cache[key] = declaredNames(root, cwd, p.eco, rev);
+  return cache[key].has(name);
 }
 
 // A command split at unquoted ;, &&, ||, | and newlines. A heredoc body
@@ -581,11 +603,12 @@ export function preBash(input) {
   // config, lockfiles, overrides), and the command names no other config,
   // sets no variable and doesn't leave the repo.
   let pkgs = installedPackages(cmd);
-  const rev = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data.startHead : null;
-  const dir = rev ? installDir(root, realCwd(input.cwd ?? root), cmd) : null;
-  if (dir && !resolvesChanged(root, rev)) {
-    const ctx = { rev };
-    pkgs = pkgs.filter((p) => !isDeclared(root, dir, p, ctx));
+  const st = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data : {};
+  const rev = st.startHead && st.userConfig === userConfig() ? st.startHead : null;
+  const segs = rev ? segmentDirs(root, realCwd(input.cwd ?? root), cmd) : null;
+  if (segs && !resolvesChanged(root, rev)) {
+    const ctx = {};
+    pkgs = segs.flatMap(({ seg, dir }) => installedPackages(seg).filter((p) => !isDeclared(root, dir, p, ctx, rev)));
   }
   if (!pkgs.length) {
     const seg = commitSegment(cmd);

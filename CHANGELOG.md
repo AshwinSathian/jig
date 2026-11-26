@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.4 (2026-11-26)
+
+Closes four gaps that a security review found in 2.4.3's declared-install skip. In each case 2.4.3 stayed quiet where 2.4.2 asked.
+
+- **Shell state is checked anywhere in a segment.** 2.4.3 looked only at a segment's start, so `if true; then export HOME=/tmp/x; fi; npm i lodash` stayed quiet. A variable set, `export`, `source`, `eval`, `sudo` or `popd` anywhere in a non-install segment now asks.
+- **Each install is judged in its own directory.** `cd` targets are followed per segment, resolved through symlinks and kept inside the repo; a subshell around a `cd`, or a target that doesn't exist, asks.
+- **User-level registry config counts.** `~/.npmrc`, `~/.yarnrc*`, `~/.bunfig.toml`, pip and uv user config and node's global npmrc are fingerprinted when the session starts, and a change asks. Sessions started before 2.4.4 have no fingerprint, so they ask.
+- **A cwd outside the repo declares nothing.**
+
 ## 2.4.3 (2026-11-26)
 
 In auto mode every hook ask becomes a prompt, so jig asks only when there is a decision to make.
