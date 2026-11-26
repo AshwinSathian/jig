@@ -88,3 +88,9 @@ test('cd -, CDPATH, an env-named config file and ~/.config under a set XDG_CONFI
   writeFileSync(join(home, '.config/pip/pip.conf'), '[global]\nindex-url=https://evil\n');
   assert.ok(asked(bash(x.dir, 'npm i lodash')), '~/.config/pip/pip.conf with XDG_CONFIG_HOME set elsewhere');
 });
+
+test('a relative env-named config path asks', () => {
+  const rel = { ...env, NPM_CONFIG_USERCONFIG: 'my.npmrc' };
+  const r = repo(); start(r.dir, 'rel', rel);
+  assert.ok(asked(bash(r.dir, 'npm i lodash', { session_id: 'rel' }, rel)), 'a relative path depends on the cwd');
+});

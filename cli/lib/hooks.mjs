@@ -471,6 +471,11 @@ function segmentDirs(root, cwd, cmd) {
 
 // User-level config that can point installs elsewhere. Fingerprinted at
 // SessionStart; a change since then means jig can't vouch for the source.
+const configEnv = () => Object.entries(process.env).filter(([k, v]) => v && /^(?:npm_config_|pnpm_|yarn_|bun_|pip_|uv_)\w*(?:CONFIG_FILE|USERCONFIG|GLOBALCONFIG|RC_FILENAME|_CONFIG)$/i.test(k));
+// A relative config path (or a yarn rc file name, looked up per directory)
+// depends on where the install runs, so jig can't fingerprint it.
+const relativeConfigEnv = () => configEnv().some(([k, v]) => !isAbsolute(v) || /RC_FILENAME$/i.test(k));
+
 function userConfig(root) {
   const h = process.env.HOME ?? '';
   const xdg = process.env.XDG_CONFIG_HOME || join(h, '.config');
@@ -478,7 +483,7 @@ function userConfig(root) {
     ...['.npmrc', '.yarnrc', '.yarnrc.yml', '.bunfig.toml', '.pip/pip.conf', 'Library/Application Support/pip/pip.conf', 'Library/Preferences/pnpm/rc'].map((f) => join(h, f)),
     ...[...new Set([xdg, join(h, '.config')])].flatMap((d) => ['pip/pip.conf', 'pip/pip.ini', 'uv/uv.toml', 'pnpm/rc'].map((f) => join(d, f))),
     // Config files the environment names (PIP_CONFIG_FILE, NPM_CONFIG_USERCONFIG, ...).
-    ...Object.entries(process.env).filter(([k, v]) => /(?:CONFIG_FILE|USERCONFIG|GLOBALCONFIG|RC_FILENAME|_CONFIG)$/i.test(k) && v).map(([, v]) => v),
+    ...configEnv().map(([, v]) => v),
     '/etc/pip.conf', '/etc/xdg/pip/pip.conf', '/etc/uv/uv.toml', '/etc/npmrc',
     join(dirname(process.execPath), '..', 'etc', 'npmrc'),
     ...(process.env.VIRTUAL_ENV ? [join(process.env.VIRTUAL_ENV, 'pip.conf')] : []),
@@ -618,7 +623,7 @@ export function preBash(input) {
   // sets no variable and doesn't leave the repo.
   let pkgs = installedPackages(cmd);
   const st = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data : {};
-  const rev = st.startHead && st.userConfig === userConfig(root) ? st.startHead : null;
+  const rev = st.startHead && st.userConfig === userConfig(root) && !relativeConfigEnv() ? st.startHead : null;
   const segs = rev ? segmentDirs(root, realCwd(input.cwd ?? root), cmd) : null;
   if (segs && !resolvesChanged(root, rev)) {
     const ctx = {};
