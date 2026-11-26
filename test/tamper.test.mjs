@@ -206,3 +206,17 @@ test('a removed closer, an escaped backtick and Ruby or heredoc openers are sign
   const k = kinds(reviewBrief(r.dir, { base: r.start }));
   for (const want of ['comment-opened test/r_test.rb:1', 'comment-opened test/h_test.rb:1', 'comment-opened test/e.test.js:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
 });
+
+test('a removed heredoc tag, a backslash-backtick and multi-line quote openers are signals', () => {
+  const { dir, g } = repo();
+  writeFileSync(join(dir, 'test/h_test.rb'), "x = <<~EOS\nnote\nEOS\nassert_equal 1, 1\n");
+  g('add', '-A'); g('commit', '-qm', 'rb');
+  const start = sha(dir);
+  writeFileSync(join(dir, 'test/h_test.rb'), "x = <<~EOS\nnote\nassert_equal 1, 1\n");
+  writeFileSync(join(dir, 'test/s.test.sh'), "echo 'open\n");
+  writeFileSync(join(dir, 'test/p_test.rb'), 'x = %q(\n');
+  writeFileSync(join(dir, 'test/r_test.rs'), 'let s = r#"\n');
+  writeFileSync(join(dir, 'test/m_test.go'), 'x := `\\`\n');
+  const k = kinds(reviewBrief(dir, { base: start }));
+  for (const want of ['comment-opened test/h_test.rb:3', 'comment-opened test/s.test.sh:1', 'comment-opened test/p_test.rb:1', 'comment-opened test/r_test.rs:1', 'comment-opened test/m_test.go:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
+});

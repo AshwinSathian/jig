@@ -89,7 +89,7 @@ Checks: C15, R8
 
 ### S9: Tampering check [done]
 Goal: the router reports `tamper` signals (Decisions) with their file:line. When `tests-or-checks` matches, the skill reads the transcript's tool calls if present, and scores actions and reasoning separately. It may raise suspicion, never clear a diff finding.
-Touch: `cli/lib/review.mjs (new)`, `test/tamper.test.mjs (new)`, `skills/review/SKILL.md (new)`, `cli/lib/status.mjs`
+Touch: `cli/lib/review.mjs (new)`, `test/tamper.test.mjs (new)`, `skills/review/SKILL.md (new)`, `cli/lib/status.mjs`, `README.md`
 Checks: C16, R9
 
 ### S10: Learning from outcomes [todo]
@@ -161,3 +161,5 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 19:03: jig verify S9: C16 pass; R9 pass
 - 2026-11-26: The fifth background security review (of c3fe390) found that deleting an existing `*/` turns the lines after it into a comment while they stay the same, and that the opener check missed escaped backticks, Ruby `=begin` and POD, and heredocs. Each is now tested first. Any changed test line holding a delimiter counts, added or removed: `/*`, `*/`, triple quotes, `=begin`/POD, `<<~X`, or an odd number of unescaped backticks. This is the fifth round on one advisory signal. More delimiter forms will exist (other languages' comment syntax), and the reviewer model reading the diff is the backstop. One assertion in this PR's own test now checks with includes, since the added `*/` is a signal too.
 - 2026-11-26 19:07: jig verify S9: C16 pass; R9 pass
+- 2026-11-26: The sixth background security review (of 1873b77) found three more gaps, each now tested first. A removed heredoc tag line now counts, as does any removed line that's one bare word. Backticks count when the raw or the escape-stripped count is odd, because Go doesn't escape backticks. Odd ' or " counts count in Ruby, Rust, shell, Perl and PHP, and so do `%q(`, `r#"` and Lua `[[`. README Limits now says tamper signals are line patterns and can be evaded, so the rounds stop here. S9 Touch gains README.md for that line. Further findings get logged as limits unless they're as cheap to close.
+- 2026-11-26 19:10: jig verify S9: C16 pass; R9 pass
