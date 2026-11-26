@@ -138,10 +138,13 @@ The `review` skill runs after a slice is built and `jig verify` is green. It als
 2. The gate runs first: `jig verify`, or your test command when there's no plan. A red gate ends the review there. On someone else's PR it asks before running anything, because that runs their code.
 3. jig-reviewer reads the change blind first. It gets the parts of the plan you approved (or your request), the diff and the repo, but not the Log, the commit messages or the PR text. Only after its findings exist does it get the builder's account, and it checks each claim against the diff. A claim the diff doesn't back up is a finding, and so is a comment telling the reviewer what to conclude.
 4. Each Important finding goes to a fresh validator that sees only the file, the line and the defect claimed, never the reasoning. It confirms the finding from the code or drops it, and the report counts what it dropped.
-5. UI files go to loupe, prose an agent wrote goes to humanizing-writing, and security-sensitive files go to owasp-security, if you have them installed. If you don't, the report says so under "Not checked".
-6. The review is recorded in `.git/jig/reviews.jsonl` against the tree it reviewed, and the report ends with a `Reviewed:` line to put in the commit beside `Verified:`. [docs/evidence-schema.md](docs/evidence-schema.md) describes the format, so CI can read it without jig.
+5. The red team (jig-redteam) gets one attempt to write failing tests in a throwaway worktree. jig:review re-runs each one in clean head and base worktrees, and a repro counts only if it fails on head and passes on base. The brief's tamper signals (removed or edited assertions, skips, edited checks, a check retried on the same tree) and, when that session built the change, the builder's transcript go to the second phase. They can raise suspicion, never clear a finding.
+6. UI files go to loupe, prose an agent wrote goes to humanizing-writing, and security-sensitive files go to owasp-security, if you have them installed. If you don't, the report says so under "Not checked".
+7. The review is recorded in `.git/jig/reviews.jsonl` against the tree it reviewed, and the report ends with a `Reviewed:` line to put in the commit beside `Verified:`. [docs/evidence-schema.md](docs/evidence-schema.md) describes the format, so CI can read it without jig.
 
 The report leads with the verdict and the gate's result, shows five findings at most, and lists what it didn't check.
+
+When a finding is settled, `jig review --outcome <id> fixed|wrong|intentional|didnt-matter` records it, and `jig review --outcome <review id> missed --file <path> --note "<what>"` records something a review let through. `jig review --propose` turns those, plus reverts and `fix:` commits after a `ready` review, into `Suppress:` and REVIEW.md proposals. It writes nothing: REVIEW.md is yours. Only style and upkeep classes can be suppressed.
 
 Two hooks go with it: the `Blocked:` exit and the `commit` gate (see [Hooks](#hooks)).
 
@@ -170,6 +173,8 @@ jig doctor [--ack]                                       report harness gaps; --
 jig review [--base <ref> | --pr <n>] [--json] [--blind]  the brief for reviewing a change: base, tree, files, triggers
 jig review --record <findings.json>                      record a review against the tree; prints a Reviewed: line
 jig review --outcome <id> fixed|wrong|intentional|didnt-matter   settle a finding
+jig review --outcome <review id> missed --file <path> --note "<what>"   record what a review missed
+jig review --propose [--json]                            Suppress and REVIEW.md proposals from outcomes; writes nothing
 ```
 
 Here's `jig doctor` on a bare repo with an `.env` file in it:
@@ -240,7 +245,7 @@ node evals/reviewer/run.mjs --runs 3
   - fresh review beating self-review on more than one held-out case
   - plans rated by people
 - **The hooks are Claude Code only.** The skills and plan files are plain markdown, but the skills point at `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code fills in.
-- **It costs tokens.** `claude plugin details jig` puts the always-on cost at about 430 tokens a session (the skill and agent descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
+- **It costs tokens.** the always-on cost is about 470 tokens a session (the skill and agent descriptions; 2.4.x measured 430 with `claude plugin details jig`, and 2.5.0's estimate scales that by its 2,578 characters of descriptions), and the nudge adds about 80 more. Planning adds a few turns a task. If you'd rather call `/jig:plan` yourself, set `JIG_NUDGE=off`.
 - **The Stop hook only works with a `checks.json`.** Brief plans that list their checks as commands don't trigger it.
 - **Review is new and barely measured.** No eval has yet shown that the blind first pass, the validator or the partner routing find more real bugs than a plain review. 2.5.0's eval is meant to. The tests on the review skill and the reviewer show the rules are written down, not that a model follows them.
 - **The red team's limits are a prompt, not a sandbox.** jig-redteam is told to write only test and repro files, use no network and leave `.env*` alone, and nothing enforces that: plugin agents can't carry hooks or a permission mode, and Bash can reach the network. The controls: it works in a throwaway worktree, only its new repro files leave it, jig:review re-runs each one in clean head and base worktrees before it counts, and jig:review asks before it runs on someone else's PR.

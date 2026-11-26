@@ -117,6 +117,8 @@ test('Suppress entries come from REVIEW.md at the plan Baseline, only for style 
   assert.deepEqual(reviewBrief(dir, { base: later }).reviewMd.suppress, [], 'committed after the Baseline, so a slice commit could have written it');
   writeFileSync(planPath, readFileSync(planPath, 'utf8').replace(/Baseline: \w+/, `Baseline: ${later}`));
   g('add', '-A'); g('commit', '-qm', 'rebaseline');
+  // A feature branch: on the default branch itself nothing is trusted.
+  g('checkout', '-qb', 'feat'); change(dir, g, 'src/f.js', 'export const f = 1;\n', 'f');
   const start = sha(dir);
   writeFileSync(join(dir, 'REVIEW.md'), '- Suppress: naming · Source: x\n- Suppress: perf · Source: me\n');
   const b = reviewBrief(dir, { base: start });
@@ -162,4 +164,14 @@ test('a Baseline moved in the working-tree plan does not move where Suppress is 
   writeFileSync(planPath, readFileSync(planPath, 'utf8').replace(/Baseline: \w+/, `Baseline: ${later}`));
   writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n');
   assert.deepEqual(reviewBrief(dir, { base: later }).reviewMd.suppress, [], 'the plan as committed still names the old Baseline');
+});
+
+test('on the default branch with a plan, Suppress is not trusted', () => {
+  const { dir, g, planPath } = planRepo();
+  change(dir, g, 'REVIEW.md', '- Suppress: naming · Source: x\n', 'suppress');
+  const later = sha(dir);
+  writeFileSync(planPath, readFileSync(planPath, 'utf8').replace(/Baseline: \w+/, `Baseline: ${later}`));
+  g('add', '-A'); g('commit', '-qm', 'rebaseline on main');
+  writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n');
+  assert.deepEqual(reviewBrief(dir, { base: later }).reviewMd.suppress, []);
 });

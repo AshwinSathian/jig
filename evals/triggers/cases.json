@@ -49,5 +49,35 @@
     "id": "review",
     "prompt": "Review my last commit for bugs.",
     "expect": "not-jig"
+  },
+  {
+    "id": "collision-slice-done",
+    "prompt": "S3 of the jig plan is built. Review the slice before I commit.",
+    "expect": "jig:review"
+  },
+  {
+    "id": "collision-after-build",
+    "prompt": "I just finished building with jig:build. Check the diff against the plan's intent.",
+    "expect": "jig:review"
+  },
+  {
+    "id": "collision-generic-pr",
+    "prompt": "Review PR #42 for bugs.",
+    "expect": "not-jig"
+  },
+  {
+    "id": "collision-code-review",
+    "prompt": "Can you do a code review of my changes?",
+    "expect": "not-jig"
+  },
+  {
+    "id": "collision-security",
+    "prompt": "Do a security review of the pending changes on this branch.",
+    "expect": "not-jig"
+  },
+  {
+    "id": "collision-simplify",
+    "prompt": "Look over what I changed and simplify it.",
+    "expect": "not-jig"
   }
 ]

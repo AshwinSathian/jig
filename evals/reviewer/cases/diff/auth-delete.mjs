@@ -23,7 +23,7 @@ export default {
   request: 'Tidy deleteNote in src/notes.js. No behaviour change.',
   pr: { title: 'Tidy deleteNote', body: 'Refactor only, no behaviour change.' },
   base, head,
-  defects: [{ id: 'missing-owner-check', match: /owner|403|auth|permission|forbidden/i }],
+  defects: [{ id: 'missing-owner-check', match: /owner (check|comparison)|note\.owner|403|forbidden|another user|any user can delete|authori[sz]ation (check )?(removed|dropped|missing)/i }],
   proof: { cmd: 'node proof.mjs', files: { 'proof.mjs': `import { deleteNote } from './src/notes.js';
 const db = { notes: new Map([[1, { owner: 'a' }]]) };
 const r = deleteNote(db, { id: 'b' }, 1);

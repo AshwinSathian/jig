@@ -22,7 +22,7 @@ export default {
   request: 'Add setEmail next to setName.',
   pr: { title: 'setEmail', body: 'Mirrors setName.' },
   base, head,
-  defects: [{ id: 'stale-cache', match: /cache|stale|invalidat/i }],
+  defects: [{ id: 'stale-cache', match: /stale|invalidat|cache\.delete|not (cleared|evicted)/i }],
   proof: { cmd: 'node proof.mjs', files: { 'proof.mjs': `import * as users from './src/users.js';
 // On base setEmail doesn't exist yet: nothing to be stale.
 if (!users.setEmail) process.exit(0);

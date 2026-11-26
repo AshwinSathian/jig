@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.0 (2026-11-26)
+
+jig:review gets an adversarial layer, and it learns from how its findings turned out. None of the new layers has been measured on a model yet: the review eval is built and its cases are proven, but no paid run has happened.
+
+- **Red team.** The new `jig-redteam` agent writes failing tests in a throwaway worktree at the change's head. jig:review re-runs only its new test files, in clean head and base worktrees, and counts a repro only when it fails on head and passes on base, or when the code under test doesn't exist on base. One attempt per review, and it asks before running on someone else's PR. The agent's limits (test and repro files only, no network, no `.env*`) are prompt-only, as README Limits says.
+- **Tamper signals.** `jig review` lists removed or edited assertions, changed test lines that hold a comment or string delimiter, added skip/only/todo, `exit(0)` in tests, and `|| true` or `continue-on-error` in CI. It also flags edits to checks.json, `.jig.json`, REVIEW.md or protected files, binary tests, and one check failing twice on one tree, each with file:line. It points at the builder's transcript only when that session built the change, and the blind pass never sees it. A signal can raise suspicion, never clear a finding. They're line patterns and can be evaded (README Limits).
+- **Learning from outcomes.** `jig review --outcome <review id> missed --file <path> --note "<what>"` records a defect a review let through. `jig review --propose` turns outcomes, reverts and `fix:` commits after a `ready` review into Suppress and REVIEW.md proposals, and writes nothing. Only style and upkeep classes can be suppressed, and only from REVIEW.md at the plan's Baseline or the merge-base.
+- **Review eval.** `evals/reviewer` gains 8 diff cases, each proven by a hidden test (`node evals/reviewer/run.mjs --check`, no API calls), six arms from a plain review to the full skill, and a grader that counts "Unknown" apart. Run it with `--diff --dry` first. The trigger eval gains collision cases and a `jig+competing` arm.
+- **No review nudge at SessionStart.** It was to ship only if the collision trigger eval showed it helps, and that eval hasn't run.
+
 ## 2.4.6 (2026-11-26)
 
 Every install that names a package asks again, including one the repo already declares. 2.4.3 to 2.4.5 let a declared name through without an ask, and every security review of that skip found a way past it: shell expansion inside the command, globs, redirects onto repo files, config in ignored or parent directories, npm's builtin npmrc. The ask costs a click per install. Getting it wrong lets in a package nobody chose.

@@ -71,6 +71,11 @@ if (argv.includes('--diff')) {
     const text = out.result?.result ?? '';
     const g = gradeDiff(text, c);
     if (out.killed || out.result?.is_error) g.valid = false;
+    // A layer counts only if it ran: the agent for blind and two-phase, the skill for full and builtin.
+    const called = (names) => out.tools.some((t) => names.includes(t.name));
+    if (['blind', 'two-phase'].includes(arm) && !called(['Agent', 'Task'])) g.valid = false;
+    if (arm === 'full' && !out.skills.some((x) => /(^|:)review$/.test(x) && x.startsWith('jig'))) g.valid = false;
+    if (arm === 'builtin' && !out.skills.some((x) => /code-review/.test(x))) g.valid = false;
     console.error(`${arm} ${c.id}: recall ${g.recall ?? '-'}, fp ${g.falsePositives}, unknown ${g.unknown}, verdict ${g.verdict}${g.pass ? ' PASS' : ''}  $${cost.toFixed(2)} (total $${total.toFixed(2)})`);
     return { arm, id: c.id, set: c.set, grade: g, costUsd: cost, text };
   };

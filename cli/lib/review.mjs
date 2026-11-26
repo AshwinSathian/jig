@@ -231,7 +231,7 @@ export function triggersFor(files, { plansDir: pd = 'docs/plans' } = {}) {
 // Ways a builder can make checks pass without making the code right. Found
 // from the diff and evidence.jsonl, never from a model, and each comes with
 // where to look. A signal is a reason to look closer, not a verdict.
-const ASSERTION = /\b(?:assert\w*|expect)\s*[.(]|\bself\.assert\w*\(|\bt\.(?:is|not|true|false|ok|equal|deepEqual|throws|regex)\s*\(|\.should\b|^\s*assert\s|\bt\.(?:Error|Fatal)f?\(/;
+const ASSERTION = /\b(?:assert\w*!?|expect)\s*[.(]|\bself\.assert\w*\(|\bt\.(?:is|not|true|false|ok|equal|deepEqual|throws|regex)\s*\(|\.should\b|^\s*assert\s|\bt\.(?:Error|Fatal)f?\(/;
 // Anchored to the start of a statement, so a test's own fixture strings
 // (`'test.only(...)'`) and titles don't match.
 const SKIP = /^\s*(?:\b(?:it|test|describe|context|suite)\.(?:skip|only|todo)(?:If)?\s*\(|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.skip|\b(?:t|pytest)\.skip\(|(?:it|test|describe)\s*\(\s*(['"\x60]).*?\1\s*,\s*\{[^}]*\b(?:skip|only|todo)\s*:)/;
@@ -267,7 +267,16 @@ function planDirs(root, base, pd) {
 // opener, or a removed closer. Such a line is a signal itself. No parser:
 // any delimiter counts, and backticks count when an odd number are
 // unescaped. Ruby `=begin` and POD, and heredocs (`<<~EOS`), count too.
-const DELIM = /\/\*|\*\/|"""|\'\'\'|^\s*=[a-z]|<<[~-]?['"]?\w|%[qQwWiIr]?[({[<|!]|\br#+"|\[=*\[/;
+// Delimiters every language shares, then each family's own. A file whose
+// language isn't known gets all of them (fail closed).
+const DELIM = /\/\*|\*\/|"""|\'\'\'/;
+const DELIM_BY = [
+  [['lua'], /\[=*\[/],
+  [['rb', 'pl', 'pm', 't', 'sh', 'bash', 'zsh', 'fish', 'ksh', 'php'], /^\s*=[a-z]|<<[~-]?['"]?\w|%[qQwWiIr]?[({[<|!]/],
+  [['rs'], /\br#+"/],
+];
+const KNOWN = new Set([...DELIM_BY.flatMap(([e]) => e), 'js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'swift', 'scala', 'dart', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs']);
+const langDelim = (l, path) => { const e = ext(path); return DELIM_BY.some(([exts, re]) => (exts.includes(e) || !KNOWN.has(e)) && re.test(l)); };
 // Languages whose ' and " strings stay on one line. Anywhere else an odd
 // quote count, or a removed line that is only closing punctuation, is a
 // signal (fail closed: an unknown language may let a string span lines).
@@ -275,7 +284,7 @@ const ONE_LINE_QUOTES = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 
 const odd = (l, c) => (l.split(c).length - 1) % 2 === 1;
 // Raw or escape-stripped: a backslash escapes a backtick in JS, not in Go.
 // A line ending in a backslash continues onto the next one in most languages.
-const delim = (l, path) => DELIM.test(l) || /\\\s*$/.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
+const delim = (l, path) => DELIM.test(l) || langDelim(l, path) || /\\\s*$/.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
   || (!ONE_LINE_QUOTES.has(ext(path)) && ["'", '"'].some((q) => odd(l.replace(/\\./g, ''), q)));
 // A removed line that may close something opened above it: one bare word
 // (a heredoc tag), or, outside one-line-quote languages, only closing
@@ -298,9 +307,11 @@ export function tamperSignals(root, base, files, pd, head = null) {
   // A binary test can't be read for assertions, so it's a signal itself.
   for (const f of files) if (isTest(f.path) && f.binary) out.push({ signal: 'test-binary', file: f.path, line: 1, side: 'head' });
   const tests = files.filter((f) => isTest(f.path) && !f.binary);
-  const headLines = new Set(tests.flatMap((f) => headText(f.path).split('\n').map((l) => l.trim())));
+  // Counted, so deleting one of several identical assertions shows.
+  const headLines = new Map();
+  for (const f of tests) for (const l of headText(f.path).split('\n')) headLines.set(l.trim(), (headLines.get(l.trim()) ?? 0) + 1);
   for (const f of tests) {
-    const gone = asserts(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => !headLines.has(l));
+    const gone = asserts(git(root, ['show', `${base}:${f.path}`]) ?? '').filter(({ l }) => { const n = headLines.get(l) ?? 0; if (n > 0) { headLines.set(l, n - 1); return false; } return true; });
     if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
   }
   for (const f of files) {
@@ -614,13 +625,13 @@ function suppressFrom(root, planRel, files) {
   // default branch itself (merge-base is HEAD) nothing is trusted.
   const def = defaultBranch(root);
   const mb = def ? git(root, ['merge-base', 'HEAD', def])?.trim() : null;
-  if (!mb) return [];
+  if (!mb || mb === full(root, 'HEAD')) return [];
   let at = null;
   if (planRel) {
     const baseline = (git(root, ['show', `${mb}:${planRel}`]) ?? '').match(/Baseline:\s*([0-9a-f]{4,40})\b/)?.[1];
     const b = baseline ? full(root, baseline) : null;
     at = b && isAncestor(root, b, mb) ? b : null;
-  } else if (mb !== full(root, 'HEAD')) at = mb;
+  } else at = mb;
   if (!at) return [];
   const text = git(root, ['show', `${at}:REVIEW.md`]);
   return text === null ? [] : reviewMdEntries(text, files).suppress;

@@ -244,3 +244,20 @@ test('C and C# raw strings, and a line ending in a backslash, are signals', () =
   const k = kinds(reviewBrief(dir, { base: start }));
   for (const want of ['comment-opened test/a_test.cpp:1', 'comment-opened test/b_test.cs:1', 'comment-opened test/c.test.js:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
 });
+
+test('a deleted copy of a repeated assertion and a Rust assert! count; a nested JS array is not a delimiter', () => {
+  const { dir, start } = repo();
+  writeFileSync(join(dir, 'test/b.test.js'), [
+    "import assert from 'node:assert';", "test('adds', () => {", '  assert.equal(add(1, 2), 3);', '});', "const t = [['J1', 'x']];", '',
+  ].join('\n'));
+  const k = kinds(reviewBrief(dir, { base: start }));
+  assert.ok(k.includes('assertion-removed test/b.test.js:4'), k.join(', '));
+  assert.ok(!k.some((x) => x.startsWith('comment-opened')), `a nested array in JS: ${k.join(', ')}`);
+  const r = repo();
+  mkdirSync(join(r.dir, 'tests'));
+  writeFileSync(join(r.dir, 'tests/lib.rs'), '#[test]\nfn t() {\n    assert_eq!(f(), 1);\n    assert_eq!(f(), 1);\n}\n');
+  r.g('add', '-A'); r.g('commit', '-qm', 'rs');
+  const rs = sha(r.dir);
+  writeFileSync(join(r.dir, 'tests/lib.rs'), '#[test]\nfn t() {\n    assert_eq!(f(), 1);\n}\n');
+  assert.ok(kinds(reviewBrief(r.dir, { base: rs })).includes('assertion-removed tests/lib.rs:4'));
+});

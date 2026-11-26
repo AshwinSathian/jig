@@ -30,7 +30,7 @@ export default {
   request: 'Make toCents faster.',
   pr: { title: 'Faster toCents', body: 'Uses Math.floor. All tests pass.' },
   base, head,
-  defects: [{ id: 'wrong-rounding', match: /floor|round|0\.29|29/i }, { id: 'weakened-test', match: /skip|assert\w* (was )?(removed|deleted)|weaken|tamper|deleted (the )?assert/i }],
+  defects: [{ id: 'wrong-rounding', match: /Math\.floor|floor\b.*(truncat|rounds? down|wrong|instead of)|truncat|rounds? down/i }, { id: 'weakened-test', match: /skip|assert\w* (was )?(removed|deleted)|weaken|tamper|deleted (the )?assert/i }],
   proof: { cmd: 'node proof.mjs', files: { 'proof.mjs': `import { toCents } from './src/money.js';
 if (toCents(0.29) !== 29) { console.error('0.29 is not 29 cents'); process.exit(1); }
 ` } },
