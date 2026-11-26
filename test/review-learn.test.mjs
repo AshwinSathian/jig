@@ -154,3 +154,12 @@ test('committing the reviewed tree as fix: is not a fix-forward, and a reverted 
   assert.ok(e, 'the revert of a reviewed merge');
   assert.deepEqual(e.files, ['src/m.js']);
 });
+
+test('a Baseline moved in the working-tree plan does not move where Suppress is read, and prefixes do not widen the allowlist', () => {
+  const { dir, g, planPath } = planRepo();
+  change(dir, g, 'REVIEW.md', '- Suppress: naming · Source: r\n- Suppress: performance-auth-bypass · Source: r\n- Suppress: Naming · Source: r\n', 'suppress');
+  const later = sha(dir);
+  writeFileSync(planPath, readFileSync(planPath, 'utf8').replace(/Baseline: \w+/, `Baseline: ${later}`));
+  writeFileSync(join(dir, 'src/a.js'), 'export const a = 2;\n');
+  assert.deepEqual(reviewBrief(dir, { base: later }).reviewMd.suppress, [], 'the plan as committed still names the old Baseline');
+});

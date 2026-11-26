@@ -384,13 +384,13 @@ export function transcriptInfo(root, base) {
 // wrong call costs a little attention. Security, correctness and tampering
 // classes are seen every time, whatever REVIEW.md says (allowlist, not a
 // list of dangerous names, which reviews kept finding gaps in).
-export const SUPPRESSIBLE = /^(?:naming|style|format\w*|readability|comments?|docs?|documentation|conventions?|dead-code|duplicat\w*|simplif\w*|complexity|perf\w*|typos?|wording|nit)$/;
+export const SUPPRESSIBLE = /^(?:naming|style|format|formatting|readability|comment|comments|doc|docs|documentation|convention|conventions|dead-code|duplicate|duplication|simplify|simplification|complexity|perf|performance|typo|typos|wording|nit)$/;
 
 export function reviewMdEntries(text, files) {
   const matched = []; const judge = []; const suppress = [];
   for (const l of (text ?? '').split('\n')) {
     const sup = l.match(/^\s*-\s*Suppress:\s*([\w-]+)\s*·\s*Source:\s*(.+?)\s*$/);
-    if (sup) { if (SUPPRESSIBLE.test(sup[1])) suppress.push({ class: sup[1], source: sup[2] }); continue; }
+    if (sup) { if (SUPPRESSIBLE.test(sup[1]) && sup[1] === sup[1].toLowerCase()) suppress.push({ class: sup[1], source: sup[2] }); continue; }
     const m = l.match(/^\s*-\s*When:\s*(.+?)\s*·\s*Check:\s*(.+?)\s*·\s*Source:\s*(.+?)\s*$/);
     if (!m) continue;
     const e = { when: m[1], check: m[2], source: m[3] };
@@ -438,7 +438,7 @@ export function proposals(root) {
   const suppress = []; const held = [];
   for (const [cls, c] of classes) {
     if (c.wrong.length < 2) continue;
-    if (!SUPPRESSIBLE.test(cls)) { held.push({ class: cls, why: `${c.wrong.length} wrong, but not a suppressible class (security, correctness and tampering classes are never proposed)` }); continue; }
+    if (!SUPPRESSIBLE.test(cls) || cls !== cls.toLowerCase()) { held.push({ class: cls, why: `${c.wrong.length} wrong, but not a suppressible class (security, correctness and tampering classes are never proposed)` }); continue; }
     if (c.fixed >= c.wrong.length) { held.push({ class: cls, why: `${c.wrong.length} wrong but ${c.fixed} fixed` }); continue; }
     const ids = [...new Set(c.wrong)];
     suppress.push({ class: cls, wrong: c.wrong.length, fixed: c.fixed, entry: `- Suppress: ${cls} · Source: reviews ${ids.join(', ')}` });
@@ -608,9 +608,20 @@ export function planIntent(plan, sliceId) {
 // merge-base with the default branch without a plan, never from a slice
 // commit the builder wrote: a Suppress line it adds in one slice would
 // otherwise silence the next slice's review.
-function suppressFrom(root, plan, base, files) {
+function suppressFrom(root, planRel, files) {
+  // Trusted refs only: the merge-base with the default branch, and the plan's
+  // Baseline as the plan reads there, never the working-tree PLAN.md. On the
+  // default branch itself (merge-base is HEAD) nothing is trusted.
   const def = defaultBranch(root);
-  const at = full(root, plan?.header?.baseline ?? '') ?? (def ? git(root, ['merge-base', 'HEAD', def])?.trim() : null) ?? base;
+  const mb = def ? git(root, ['merge-base', 'HEAD', def])?.trim() : null;
+  if (!mb) return [];
+  let at = null;
+  if (planRel) {
+    const baseline = (git(root, ['show', `${mb}:${planRel}`]) ?? '').match(/Baseline:\s*([0-9a-f]{4,40})\b/)?.[1];
+    const b = baseline ? full(root, baseline) : null;
+    at = b && isAncestor(root, b, mb) ? b : null;
+  } else if (mb !== full(root, 'HEAD')) at = mb;
+  if (!at) return [];
   const text = git(root, ['show', `${at}:REVIEW.md`]);
   return text === null ? [] : reviewMdEntries(text, files).suppress;
 }
@@ -659,7 +670,7 @@ export function reviewBrief(root, opts = {}) {
     tamper: tamperSignals(root, b.base, files, pd, b.head ?? null),
     // A working-tree review only: a PR or committed range has no session.
     transcript: b.head || b.pr ? null : transcriptInfo(root, b.base),
-    reviewMd: reviewText === null ? null : { ...reviewMdEntries(reviewText, files), suppress: suppressFrom(root, mine?.plan, b.base, files) },
+    reviewMd: reviewText === null ? null : { ...reviewMdEntries(reviewText, files), suppress: suppressFrom(root, mine ? relative(root, mine.path) : null, files) },
     checks,
     gate,
     round,
