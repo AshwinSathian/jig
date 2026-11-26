@@ -165,3 +165,5 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-26 19:10: jig verify S9: C16 pass; R9 pass
 - 2026-11-26: The seventh background security review (of 6c2d36c) found two fail-open lists, both now tested first. The test failed on 6c2d36c, on the Lua `]==]` closer. An odd quote count is now a signal in every language except a named set that keeps strings on one line (JS, TS, Python, Go, Java, C-family, Kotlin, Swift, Scala, Dart). A removed line that is a bare word with an optional `;`/`,`, or (outside that set) only closing punctuation, now counts as a removed closer.
 - 2026-11-26 19:14: jig verify S9: C16 pass; R9 pass
+- 2026-11-26: The eighth background security review (of ca1ac15) found that C, C++ and C# raw strings and line continuations were in the one-line set. They're taken out, and any changed test line ending in a backslash is now a signal. The test failed first on the C++ `R"x(` case. Not taken: treating a removed closer-only line as a signal in one-line-quote languages. In JS that flags every removed `});`, and a one-line string can't be closed by a later line.
+- 2026-11-26 19:17: jig verify S9: C16 pass; R9 pass

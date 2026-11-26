@@ -235,3 +235,12 @@ test('quote and closer checks fail closed outside languages with one-line string
   for (const want of ['comment-opened test/l_test.lua:3', 'comment-opened test/q_test.rb:3', 'comment-opened test/f.test.fish:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
   assert.ok(!k.some((x) => x.startsWith('comment-opened test/a.test.js')), 'a JS line with paired quotes');
 });
+
+test('C and C# raw strings, and a line ending in a backslash, are signals', () => {
+  const { dir, start } = repo();
+  writeFileSync(join(dir, 'test/a_test.cpp'), 'auto s = R"x(\n');
+  writeFileSync(join(dir, 'test/b_test.cs'), 'var s = @"\n');
+  writeFileSync(join(dir, 'test/c.test.js'), "const s = 'a \\\\\n");
+  const k = kinds(reviewBrief(dir, { base: start }));
+  for (const want of ['comment-opened test/a_test.cpp:1', 'comment-opened test/b_test.cs:1', 'comment-opened test/c.test.js:1']) assert.ok(k.includes(want), `${want} in ${k.join(', ')}`);
+});

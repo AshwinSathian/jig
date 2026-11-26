@@ -271,10 +271,11 @@ const DELIM = /\/\*|\*\/|"""|\'\'\'|^\s*=[a-z]|<<[~-]?['"]?\w|%[qQwWiIr]?[({[<|!
 // Languages whose ' and " strings stay on one line. Anywhere else an odd
 // quote count, or a removed line that is only closing punctuation, is a
 // signal (fail closed: an unknown language may let a string span lines).
-const ONE_LINE_QUOTES = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'swift', 'scala', 'dart']);
+const ONE_LINE_QUOTES = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 'go', 'java', 'kt', 'swift', 'scala', 'dart']);
 const odd = (l, c) => (l.split(c).length - 1) % 2 === 1;
 // Raw or escape-stripped: a backslash escapes a backtick in JS, not in Go.
-const delim = (l, path) => DELIM.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
+// A line ending in a backslash continues onto the next one in most languages.
+const delim = (l, path) => DELIM.test(l) || /\\\s*$/.test(l) || odd(l, '`') || odd(l.replace(/\\./g, ''), '`')
   || (!ONE_LINE_QUOTES.has(ext(path)) && ["'", '"'].some((q) => odd(l.replace(/\\./g, ''), q)));
 // A removed line that may close something opened above it: one bare word
 // (a heredoc tag), or, outside one-line-quote languages, only closing
