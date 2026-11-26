@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **The README opens with a real run.** `scripts/readme-run.mjs` drives the CLI and hooks in a throwaway repo: a protected-test edit and an install that ask, an edit outside the slice that gets a note, a failing `jig verify`, the Stop hook's block, then a passing verify with its `Verified:` line. `test/readme-run.test.mjs` fails when the README's copy no longer matches what the CLI prints. The CLI and Hooks sections now cover `jig review`, the `commit` gate and the `Blocked:` exit.
+- **`jig verify` records a useful line for a `node --test` failure.** It used to record the error object's closing `}`. It now skips brace-only lines, stack frames and indented properties, so the Log says `7 !== 6`.
+
 ## 2.4.0 (2026-11-26)
 
 Post-build review. Plan, build, verify and review are now one loop, and review also works without a plan.

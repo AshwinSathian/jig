@@ -17,7 +17,50 @@ npx jig-plan doctor            # or: npm install -g jig-plan, then `jig doctor`
 
 Then work the way you already do, e.g. *"add CSV export to the reports page"*. A one-line fix gets a four-line plan in chat and carries on. A feature gets a short plan you approve, and then it's built one slice at a time, with the evidence written into the plan. Run `jig doctor` in a repo to see what it'd want fixed first.
 
-**Contents:** [How it works](#how-it-works) · [What a plan looks like](#what-a-plan-looks-like) · [Review](#review) · [Hooks](#hooks) · [The CLI](#the-cli) · [Evidence](#evidence) · [Limits](#limits) · [How it compares](#how-it-compares) · [Updating and troubleshooting](#updating-and-troubleshooting)
+## A real run
+
+This is jig's own output, from a throwaway repo with one plan and one acceptance test. The `#` lines stand in for the agent, and everything else is what the CLI and hooks print. In a session, Claude Code shows an `ask` as a permission prompt, and a `block` sends the agent back to work with the reason. [`scripts/readme-run.mjs`](scripts/readme-run.mjs) generates the section, and a test fails if it drifts from what the current CLI prints. Durations show as `(…s)`, and each hook's JSON is cut down to its decision and message.
+
+<!-- run:start -->
+```console
+$ jig status
+Plans live in docs/plans/ (set "plansDir" in .jig.json to change).
+Order totals (docs/plans/totals/PLAN.md) · building · 0/1 slices done
+  Now: S1, totals.
+  Doing: S1 Totals · touch: src/total.js, test/
+
+# The agent goes to edit the acceptance test. Before an edit:
+ask: jig: test/total.accept.test.js is protected by check C1 in docs/plans/totals/PLAN.md. Acceptance tests come from the spec; edit one only when the spec changed, and log the decision in the plan.
+
+# It reaches for a package. Before a Bash call:
+ask: jig: this adds left-pad (npm). A new dependency is a one-way door: check that the name is the real package (hallucinated names get registered by attackers), its age and downloads, and record it in the plan's Decisions.
+
+# It edits a file the slice doesn't list:
+note: jig: src/format.js is outside S1's Touch list (src/total.js, test/). If the slice needs it, add it to Touch with a Log line; otherwise leave it for its own slice.
+
+# It changes src/total.js with a bug and runs the checks:
+$ jig verify
+FAIL C1 (…s) node --test test/total.accept.test.js
+     exit 1 (expected 0): 7 !== 6
+0/1 passed
+
+# It says "done". The Stop hook:
+block: jig (docs/plans/totals/PLAN.md): the last `jig verify` had failing checks (C1). Rounds so far: C1 (round 1 of 3). Fix the code, not the check, and verify again, or tell the user plainly they are failing; don't describe the slice as done.
+
+# It fixes the bug:
+$ jig verify --record
+PASS C1 (…s) node --test test/total.accept.test.js
+1/1 passed · recorded in the plan Log
+
+For the slice commit:
+Verified: S1 C1 pass (tree 012b971)
+
+# It stops again:
+(nothing: the hook lets it through)
+```
+<!-- run:end -->
+
+**Contents:** [A real run](#a-real-run) · [How it works](#how-it-works) · [What a plan looks like](#what-a-plan-looks-like) · [Review](#review) · [Hooks](#hooks) · [The CLI](#the-cli) · [Evidence](#evidence) · [Limits](#limits) · [How it compares](#how-it-compares) · [Updating and troubleshooting](#updating-and-troubleshooting)
 
 ## How it works
 
@@ -100,7 +143,7 @@ The `review` skill runs after a slice is built and `jig verify` is green. It als
 
 The report leads with the verdict and the gate's result, shows five findings at most, and lists what it didn't check.
 
-Two hook changes ship with it. A builder that can't finish a slice as specified, say because a test contradicts the spec or a check can't run in that environment, writes `Blocked: <reason>` in the Log. The Stop hook then lets the session end and tells you why. And a new `commit` gate notes any `git commit` whose tree has no passing `jig verify` or review, unless the message says `Verified: none (<reason>)`. For now it only writes to `.git/jig/observe.jsonl`, so you can see how often it would fire before deciding whether it should ask (`JIG_GATES=enforce:commit`).
+Two hooks go with it: the `Blocked:` exit and the `commit` gate (see [Hooks](#hooks)).
 
 ## Hooks
 
@@ -108,10 +151,10 @@ Two hook changes ship with it. A builder that can't finish a slice as specified,
 |---|---|---|
 | SessionStart | One paragraph telling the model to plan code changes with jig, plus the state of any active plan | Run anything from the repo |
 | Before an edit | **Asks** before a file a check protects (an acceptance test) is edited, and also when `checks.json` is invalid. Once a plan is approved, also asks when an edit would loosen `checks.json` (drop a check, change its command or expectation, unprotect a file) or move the plan out of approved or building. New checks and new protected files go through without a prompt. Notes once per file when an edit falls outside the current slice | Return `allow`, so your own permission prompts still apply |
-| Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
-| Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
+| Before a Bash call | **Asks** before `npm i`, `pip install`, `cargo add` and the like when they name a package. Notes a `git commit` whose tree has no passing `jig verify` or `ready` review, unless the message says `Verified: none (<reason>)` | Get in the way of lockfile installs (`npm ci`, `pip install -r`) |
+| Stop | If the working tree changed since the session started and doesn't match the last `jig verify`, asks the agent to run it and report the result. That catches changes made through Bash too. Each new failing run blocks once, and on the third failure of the same check it tells the agent to stop and bring you what it tried. A builder that can't finish as specified (a test contradicts the spec, a check can't run here) writes `Blocked: <reason>` as the last Log line, and the hook lets the session end and tells you why | Run the checks itself, because `checks.json` comes from the repo and a repo can be hostile |
 
-Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. A sixth, `rules`, asks before an edit to a CI workflow under `.github/workflows/`, since workflows run with your repo's secrets. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` only get logged: editing CLAUDE.md is usually ordinary work, and Claude Code already asks before writes to `.claude/`. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
+Turn hooks off with `JIG_HOOKS_OFF=pre-bash,stop` (or `all`), and the session nudge with `JIG_NUDGE=off`. To try a gate before trusting it, `JIG_GATES=observe` (or `observe:freeze,tree,rounds`) makes the gates write what they'd have asked or blocked to `.git/jig/observe.jsonl` and stay quiet. The gates are `protects` (protected files, and an invalid `checks.json`), `freeze` (loosening checks, or changing an approved plan's status), `install`, `tree` and `rounds`. `rules` asks before an edit to a CI workflow under `.github/workflows/`, since workflows run with your repo's secrets. Edits to `CLAUDE.md`, `REVIEW.md` and `.claude/` only get logged: editing CLAUDE.md is usually ordinary work, and Claude Code already asks before writes to `.claude/`. `commit` starts observed: it only logs until you set `JIG_GATES=enforce:commit`, so you can see how often it would ask first. An edit to one of those files that mentions `JIG_GATES` or `JIG_HOOKS_OFF` always asks, observe mode or not. They're guardrails, not a sandbox: a shell command can still change a file without going through the Edit tool. [SECURITY.md](SECURITY.md) says exactly what runs where.
 
 ## The CLI
 
@@ -124,6 +167,9 @@ jig status                                               active plans, their Now
 jig verify [--slice S2] [--fast] [--record]              run checks.json; --record writes the result to the Log
                                                          and prints a Verified: line for the commit
 jig doctor [--ack]                                       report harness gaps; --ack marks the repo's agent config as read
+jig review [--base <ref> | --pr <n>] [--json] [--blind]  the brief for reviewing a change: base, tree, files, triggers
+jig review --record <findings.json>                      record a review against the tree; prints a Reviewed: line
+jig review --outcome <id> fixed|wrong|intentional|didnt-matter   settle a finding
 ```
 
 Here's `jig doctor` on a bare repo with an `.env` file in it:

@@ -7,9 +7,14 @@ import { stateDir, showHead, treeId, headSha } from './git.mjs';
 import { plansDir } from './status.mjs';
 import { today } from './scaffold.mjs';
 
+// The last line that says something. Skips what an error object or stack
+// trace ends with (node --test ends on `}`): brace-only lines, `at ...`
+// frames and indented `key: value,` properties. Falls back to the last line.
+const NOISE = /^\s*[{}[\](),]*\s*$|^\s+at\s|^\s+[\w$]+: .*,?$/;
 function lastLine(s) {
-  const lines = (s ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
-  return lines.length ? lines[lines.length - 1].slice(0, 200) : '';
+  const lines = (s ?? '').split('\n').filter((l) => l.trim());
+  const pick = lines.findLast((l) => !NOISE.test(l)) ?? lines[lines.length - 1] ?? '';
+  return pick.trim().slice(0, 200);
 }
 
 export function runCheck(root, c) {
