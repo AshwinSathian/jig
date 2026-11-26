@@ -1,0 +1,67 @@
+// 2.4.5: the declared-install skip applies only when every other segment is
+// on a short allowlist, so a new spelling of shell state can't slip past.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { writeFileSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { hook, base } from './helpers.mjs';
+import { tempRepo } from './verify.test.mjs';
+
+const home = realpathSync(mkdtempSync(join(tmpdir(), 'jig-home-')));
+const xdg = realpathSync(mkdtempSync(join(tmpdir(), 'jig-xdg-')));
+const env = { HOME: home, XDG_CONFIG_HOME: xdg };
+const start = (dir, session = 's1', e = env) => hook('session-start', base(dir, { session_id: session }), e);
+const bash = (dir, command, extra = {}, e = env) => hook('pre-bash', base(dir, { tool_input: { command }, ...extra }), e);
+const asked = (out) => out?.hookSpecificOutput?.permissionDecision === 'ask';
+
+function repo() {
+  const { dir, g } = tempRepo();
+  mkdirSync(join(dir, 'web'));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4' } }));
+  writeFileSync(join(dir, 'web/package.json'), JSON.stringify({ dependencies: { astro: '^5' } }));
+  g('add', '-A'); g('commit', '-qm', 'pkg');
+  start(dir);
+  return { dir, g };
+}
+
+test('any segment outside the allowlist makes a declared install ask', () => {
+  const { dir } = repo();
+  for (const cmd of ['read HOME <<< /tmp/x; npm i lodash', 'printf -v HOME /tmp/x; npm i lodash', 'mapfile -t a < f; npm i lodash', 'let x=1; npm i lodash', 'cp /tmp/e "$HOME/.config/pnpm/rc"; npm i lodash', 'python3 -c "print(1)"; npm i lodash', 'node -e 1 && npm i lodash', '"cd" /tmp; npm i lodash', 'c\\d /tmp; npm i lodash', '$X /tmp; npm i lodash', 'npm i lodash && npm test', 'tee x < y; npm i lodash', 'npm i lodash | tee .npmrc2']) {
+    assert.ok(asked(bash(dir, cmd)), cmd);
+  }
+});
+
+test('plain installs, plain cd and output filters stay quiet', () => {
+  const { dir } = repo();
+  for (const cmd of ['npm i lodash', 'npm i lodash 2>&1 | tail -3', 'npm i lodash | grep -v warn', 'npm i lodash 2>&1 | head -n 20', 'cd web && npm i astro', 'cd web; npm i astro 2>&1 | tail -5']) {
+    assert.equal(bash(dir, cmd), null, cmd);
+  }
+});
+
+test('XDG, pnpm and parent-directory config, and registry env vars, are fingerprinted', () => {
+  const cases = [
+    () => { mkdirSync(join(xdg, 'pip'), { recursive: true }); writeFileSync(join(xdg, 'pip/pip.conf'), '[global]\nindex-url=https://evil\n'); },
+    () => { mkdirSync(join(xdg, 'pnpm'), { recursive: true }); writeFileSync(join(xdg, 'pnpm/rc'), 'registry=https://evil\n'); },
+  ];
+  for (const change of cases) {
+    const { dir } = repo();
+    change();
+    assert.ok(asked(bash(dir, 'npm i lodash')), String(change));
+  }
+  // A repo inside its own parent directory, so the parent's uv.toml is ours.
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'jig-parent-')));
+  const dir = join(parent, 'repo');
+  mkdirSync(dir);
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 't');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4' } }));
+  g('add', '-A'); g('commit', '-qm', 'pkg');
+  start(dir);
+  assert.equal(bash(dir, 'npm i lodash'), null, 'before the parent uv.toml');
+  writeFileSync(join(dirname(dir), 'uv.toml'), 'index-url = "https://evil"\n');
+  assert.ok(asked(bash(dir, 'npm i lodash')), 'uv.toml in a parent directory');
+  const r = repo();
+  assert.ok(asked(bash(r.dir, 'npm i lodash', {}, { ...env, NPM_CONFIG_REGISTRY: 'https://evil' })), 'a registry env var that differs from the session start');
+});
