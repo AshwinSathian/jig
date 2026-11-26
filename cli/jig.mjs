@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // jig: plan, verify and guard agent-built work. No dependencies; Node 20+.
 import { relative, join, isAbsolute } from 'node:path';
-import { statSync, readdirSync, existsSync } from 'node:fs';
+import { statSync, readdirSync, existsSync, readFileSync } from 'node:fs';
 import { lintFile } from './lib/lint.mjs';
 import { newPlan } from './lib/scaffold.mjs';
 import { statusSummary, findPlans, activePlans, doingSlice, plansDir } from './lib/status.mjs';
@@ -21,7 +21,7 @@ Usage:
                                          Run checks from checks.json; --record appends the result to the Log
   jig doctor [--json] [--ack]            Report harness gaps in this repo (changes nothing in the repo);
                                          --ack records that you've read the repo's agent config
-  jig review [--base <ref> | --pr <n>] [--json]
+  jig review [--base <ref> | --pr <n>] [--json] [--record <findings.json>] [--outcome <id> <outcome>]
                                          The brief a review starts from: base, tree, triggers, REVIEW.md
                                          entries from the base, and the last evidence and review records
   jig hook <session-start|pre-edit|pre-bash|stop>   Hook entry points (read JSON on stdin)
@@ -133,6 +133,25 @@ async function main() {
     case 'review': {
       const { reviewBrief, formatBrief } = await import('./lib/review.mjs');
       for (const k of ['base', 'pr']) if (flags[k] === true || String(flags[k] ?? '').startsWith('-')) { console.error(`jig review: --${k} needs a ${k === 'pr' ? 'PR number' : 'ref'}`); return 2; }
+      if (flags.record !== undefined || flags.outcome !== undefined) {
+        const { recordReview, recordOutcome } = await import('./lib/review.mjs');
+        let r;
+        if (flags.record !== undefined) {
+          // --record is a boolean flag for verify, so here its file is the positional.
+          const file = flags.record === 'true' ? pos[0] : flags.record;
+          if (!file || file === true) { console.error('jig review: --record needs a findings JSON file'); return 2; }
+          let input;
+          try { input = JSON.parse(readFileSync(isAbsolute(file) ? file : join(cwd, file), 'utf8')); } catch (e) { console.error(`jig review: can't read ${file} (${e.message})`); return 2; }
+          r = recordReview(root, input);
+          if (!r.error) console.log(r.trailer);
+        } else {
+          if (flags.outcome === true || !pos[0]) { console.error('jig review: --outcome <finding id> <fixed|wrong|intentional|didnt-matter>'); return 2; }
+          r = recordOutcome(root, flags.outcome, pos[0]);
+          if (!r.error) console.log(`recorded: ${flags.outcome} ${pos[0]}`);
+        }
+        if (r.error) { console.error(`jig review: ${r.error}`); return 2; }
+        return 0;
+      }
       const b = reviewBrief(root, { base: flags.base ?? null, pr: flags.pr ?? null });
       if (b.error) { console.error(`jig review: ${b.error}`); return 2; }
       console.log(flags.json === 'true' ? JSON.stringify(b, null, 2) : formatBrief(b));

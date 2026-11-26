@@ -2,7 +2,8 @@
 // only git (hardened, through git.mjs) and, for --pr, gh. It never runs a
 // repo's own commands: the gate is the review skill's job.
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, lstatSync, appendFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { git, isCommit, stateDir } from './git.mjs';
 import { activePlans, doingSlice, plansDir } from './status.mjs';
@@ -87,11 +88,15 @@ export function resolveBase(root, { base = null, pr = null } = {}) {
 // Files changed from base to head (a commit), or to the working tree when
 // head is null, with added and removed lines. Untracked files count as added.
 // Throws when git fails, so a bad range is never an empty diff.
+// Not for hooks: a working-tree diff runs any clean filter .git/config
+// defines (as a plain `git diff` would), and hooks run outside the sandbox.
+// textconv and external diff drivers are off.
+const MAX_UNTRACKED = 2 * 1024 * 1024;
 export function diffFiles(root, base, head = null) {
   const range = head ? [base, head] : [base];
   const q = ['-c', 'core.quotePath=false'];
-  const stat = git(root, [...q, 'diff', '--no-renames', '--numstat', '-z', ...range, '--']);
-  const patch = git(root, [...q, 'diff', '--no-renames', '-U0', '--no-color', '--no-ext-diff', ...range, '--']);
+  const stat = git(root, [...q, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', '--numstat', '-z', ...range, '--']);
+  const patch = git(root, [...q, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', '-U0', '--no-color', ...range, '--']);
   if (stat === null || patch === null) throw new Error(`git diff ${range.join(' ')} failed`);
   const files = new Map();
   for (const rec of stat.split('\0').filter(Boolean)) {
@@ -112,8 +117,13 @@ export function diffFiles(root, base, head = null) {
   }
   if (!head) {
     for (const p of lines(git(root, [...q, 'ls-files', '--others', '--exclude-standard']))) {
+      // Regular files only, and not huge ones: a symlink, FIFO or device is
+      // never opened, the same rule treeId follows.
       let text = '';
-      try { text = readFileSync(join(root, p), 'utf8'); } catch { /* unreadable: count it, no lines */ }
+      try {
+        const st = lstatSync(join(root, p));
+        if (st.isFile() && st.size <= MAX_UNTRACKED) text = readFileSync(join(root, p), 'utf8');
+      } catch { /* unreadable: list it with no lines */ }
       const added = text.split('\n'); if (added[added.length - 1] === '') added.pop();
       files.set(p, { path: p, adds: added.length, dels: 0, binary: false, added, removed: [], untracked: true });
     }
@@ -224,6 +234,71 @@ export function reviewMdEntries(text, files) {
 
 export const reviews = (root) => readJsonl(root, 'reviews.jsonl');
 
+// A review the skill hands over as JSON. Validated before anything is
+// written; the record is tied to the working tree it reviewed, like evidence.
+export const VERDICTS = ['ready', 'fix first', 'rethink'];
+export const SEVERITIES = ['Important', 'Nit', 'Pre-existing'];
+export const CONFIDENCES = ['Confirmed', 'Likely', 'Needs verification'];
+export const OUTCOMES = ['fixed', 'wrong', 'intentional', 'didnt-matter'];
+const hash8 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 8);
+
+// Stable across reviews: class, file and title (lower case, spaces collapsed),
+// never the line, which moves as the file changes.
+export function findingId(f) {
+  return hash8([f.class, f.file, String(f.title ?? '').toLowerCase().replace(/\s+/g, ' ').trim()].join('\0'));
+}
+
+function invalid(input) {
+  if (!input || typeof input !== 'object') return 'input is not a JSON object';
+  if (!VERDICTS.includes(input.verdict)) return `verdict must be one of ${VERDICTS.join(', ')}`;
+  if (!Array.isArray(input.findings)) return 'findings must be a list (empty for "Findings: none")';
+  for (const [i, f] of input.findings.entries()) {
+    const at = `findings[${i}]`;
+    if (!SEVERITIES.includes(f.severity)) return `${at}: severity must be one of ${SEVERITIES.join(', ')}`;
+    if (f.confidence !== undefined && !CONFIDENCES.includes(f.confidence)) return `${at}: confidence must be one of ${CONFIDENCES.join(', ')}`;
+    if (f.severity === 'Important' && f.confidence === undefined) return `${at}: an Important finding needs a confidence`;
+    if (typeof f.file !== 'string' || !f.file) return `${at}: file is required`;
+    if (f.line !== undefined && f.line !== null && !Number.isInteger(f.line)) return `${at}: line must be an integer`;
+    if (typeof f.class !== 'string' || !f.class) return `${at}: class is required (e.g. swallowed-error)`;
+    if (typeof f.title !== 'string' || !f.title) return `${at}: title is required`;
+  }
+  return null;
+}
+
+// The input names the base, head and tree from the brief the review started
+// from, so a record can't certify a tree nobody reviewed: if the working
+// tree moved since the brief, the record is refused. A null tree is a PR
+// head that wasn't checked out.
+export function recordReview(root, input) {
+  const why = invalid(input);
+  if (why) return { error: why };
+  for (const k of ['base', 'head', 'tree']) if (!(k in input)) return { error: `${k} is required: copy base, head and tree from \`jig review --json\`` };
+  const base = full(root, input.base);
+  const head = full(root, input.head);
+  if (!base) return { error: `base ${input.base} is not a commit here` };
+  if (!head) return { error: `head ${input.head} is not a commit here` };
+  let tree = null;
+  if (input.tree !== null) {
+    tree = workTree(root);
+    if (tree !== input.tree || head !== full(root, 'HEAD')) return { error: `the tree reviewed (${String(input.tree).slice(0, 7)}) changed since the brief (now ${String(tree).slice(0, 7)}${head !== full(root, 'HEAD') ? ', and HEAD moved' : ''}); review the new tree` };
+  }
+  const t = Date.now();
+  const findings = input.findings.map((f) => ({ id: findingId(f), severity: f.severity, ...(f.confidence ? { confidence: f.confidence } : {}), file: f.file, line: f.line ?? null, class: f.class, title: f.title }));
+  const dup = findings.find((f, i) => findings.findIndex((g) => g.id === f.id) !== i);
+  if (dup) return { error: `two findings have the same id ${dup.id} (${dup.class} in ${dup.file}): give them titles that say how they differ, or report them as one finding with both lines` };
+  const rec = { v: 1, t, id: hash8(`${t}\0${tree}\0${head}`), head, base, tree, verdict: input.verdict, findings, ...(Number.isInteger(input.dropped) ? { dropped: input.dropped } : {}) };
+  appendFileSync(join(stateDir(root), 'reviews.jsonl'), JSON.stringify(rec) + '\n');
+  return { record: rec, trailer: `Reviewed: ${rec.verdict}, ${findings.length} findings (tree ${tree ? tree.slice(0, 7) : 'none'})` };
+}
+
+export function recordOutcome(root, id, outcome) {
+  if (!OUTCOMES.includes(outcome)) return { error: `outcome must be one of ${OUTCOMES.join(', ')}` };
+  if (!reviews(root).some((r) => (r.findings ?? []).some((f) => f.id === id))) return { error: `no finding ${id} in reviews.jsonl` };
+  const rec = { v: 1, t: Date.now(), kind: 'outcome', finding: id, outcome };
+  appendFileSync(join(stateDir(root), 'reviews.jsonl'), JSON.stringify(rec) + '\n');
+  return { record: rec };
+}
+
 // ---------- the brief ----------
 
 export function reviewBrief(root, opts = {}) {
@@ -238,7 +313,7 @@ export function reviewBrief(root, opts = {}) {
   // PR head is what's checked out.
   const tree = b.head && b.head !== full(root, 'HEAD') ? null : workTree(root);
   const ev = lastEvidence(root);
-  const rv = reviews(root).filter((r) => r.findings).pop() ?? null;
+  const rv = reviews(root).filter((r) => !r.kind && r.findings).pop() ?? null;
   const active = activePlans(root);
   const checks = active.some(({ path }) => loadChecks(path).exists);
   const reviewText = git(root, ['show', `${b.base}:REVIEW.md`]);

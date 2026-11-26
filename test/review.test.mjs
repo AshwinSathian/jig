@@ -151,6 +151,15 @@ test('a path with spaces or non-ASCII characters keeps its name and lines', () =
   assert.deepEqual(files.find((x) => x.path === 'café.js').added, ['two']);
 });
 
+test('an untracked symlink or FIFO is listed but never read', () => {
+  const { dir } = tempRepo();
+  spawnSync('ln', ['-s', '/etc/hosts', join(dir, 'link')]);
+  spawnSync('mkfifo', [join(dir, 'pipe')]);
+  const files = diffFiles(dir, sha(dir));
+  assert.deepEqual(files.find((x) => x.path === 'link')?.added, []);
+  assert.deepEqual(files.find((x) => x.path === 'pipe')?.added ?? [], []);
+});
+
 test('a slice Baseline that is not a commit, or no default branch, is named in fallback', () => {
   const { dir, g, planPath } = planRepo();
   g('branch', '-M', 'work'); // no main or master: git's default branch name varies by machine

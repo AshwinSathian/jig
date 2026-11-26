@@ -62,6 +62,12 @@ export const NUDGE = 'jig: for any request to change code in this repo, invoke t
 
 export function sessionStart(input) {
   const root = rootOf(input);
+  // The transcript path, kept so a review can read the builder's tool calls
+  // locally (docs/evidence-schema.md). Only the path is stored, never content.
+  if (typeof input.transcript_path === 'string' && repoRoot(root)) {
+    const st = sessionState(root, input);
+    if (st.data.transcript !== input.transcript_path) { st.data.transcript = input.transcript_path; st.save(); }
+  }
   if (activePlans(root).length) keepStartTree(root, sessionState(root, input));
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
@@ -402,7 +408,7 @@ function observe(input, hook, gate, out) {
   const root = rootOf(input);
   const file = input.tool_input?.file_path;
   const entry = {
-    t: Date.now(), hook, gate, session: sid(input),
+    v: 1, t: Date.now(), hook, gate, session: sid(input),
     decision: out.decision ?? out.hookSpecificOutput?.permissionDecision,
     reason: out.reason ?? out.hookSpecificOutput?.permissionDecisionReason,
     ...(file ? { file: relative(root, isAbsolute(file) ? file : join(root, file)) } : {}),

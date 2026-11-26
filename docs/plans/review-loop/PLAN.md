@@ -1,7 +1,7 @@
 # Post-build review
 
 Status: building · Tier: full · Baseline: e21a3d6 · Updated: 2026-11-25
-Now: S3 doing (review records and the schema doc).
+Now: S4 doing (blind reviewer, claims second, validate mode).
 
 ## Outcome
 After building, with or without a jig plan, `jig:review` gates the change on deterministic checks, reviews it blind and then against the builder's claims, validates the Important findings, routes UI, prose and security files to their partner skills, and records a tree-tied review that the Stop hook, the commit gate and CI can read. 2.5.0 adds a red team that counts only failing repros, a tampering check, proposals learned from finding outcomes, and an eval that measures which of these layers earns its place.
@@ -56,12 +56,12 @@ Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `test/review.test.mjs (new)`, 
 Checks: C2, C3, C4, R2
 - Risk: triggers misfire the way D7 did (eight false results). Detect: C3's negative cases, then the S7 dogfood counts false triggers. Fallback: narrow the pattern and add the case to C3.
 
-### S3: Review records and the schema doc [doing]
+### S3: Review records and the schema doc [done]
 Goal: `jig review --record <findings.json>` validates the findings and appends a versioned, tree-tied record to `.git/jig/reviews.jsonl`. `--outcome <id> fixed|wrong|intentional|didnt-matter` appends an outcome. SessionStart keeps `transcript_path` in the session state. `docs/evidence-schema.md` documents all four state files.
-Touch: `cli/lib/review.mjs (new)`, `cli/jig.mjs`, `cli/lib/hooks.mjs`, `test/review-records.test.mjs (new)`, `docs/evidence-schema.md (new)`
+Touch: `cli/lib/review.mjs`, `cli/jig.mjs`, `cli/lib/hooks.mjs`, `cli/lib/verify.mjs`, `test/review.test.mjs`, `test/review-records.test.mjs (new)`, `docs/evidence-schema.md (new)`
 Checks: C5, C6, R3
 
-### S4: Blind reviewer, claims second, validate mode [todo]
+### S4: Blind reviewer, claims second, validate mode [doing]
 Goal: jig-reviewer's diff mode is two phases: blind (owner-approved intent, the diff and the repo; no Log narrative, commit messages or PR text), then claims against evidence, where a phantom change is a finding. It adds a plan-free mode on the merge-base, validate mode, "Declined to judge", a "plan is wrong" class, quoted rules, swallowed errors per catch, reachability for security findings, a confidence label, inline fixes, and `model: opus`. Reruns of the same model never count as independent votes.
 Touch: `agents/jig-reviewer.md`, `evals/reviewer/grade.mjs`, `test/reviewer-grade.test.mjs`
 Checks: C7, R4
@@ -122,3 +122,7 @@ Checks: C20, C21, C23, C24, R12
 - 2026-11-25 23:52: jig verify S2: C2 pass; C3 pass; C4 pass; R2 pass
 - 2026-11-25 23:57: jig verify S2: C2 pass; C3 pass; C4 pass; R2 pass
 - 2026-11-25: S2 done. `jig review` resolves the base (flags, then the doing slice's start from `Verified:` trailers, then the merge-base with the default branch, local or `origin/`, then HEAD), and prints a brief with tree, stats, triggers, REVIEW.md entries read from the base, the D1 and D7 gate, and evidence and review records with a `current` flag. Every skipped step is named in `fallback`, an empty diff against HEAD is an error, and in `--pr` mode the tree is null unless the PR head is checked out. Line-content triggers read source files only, not tests or docs. The first run on this branch flagged its own test fixtures as security, which led to that rule. The jig-reviewer diff review gave fix first with 14 findings, all applied, each with a test that failed first. They covered false triggers (`.exec(`, `Math.random() * width`, `requirements.txt` as prose, `token` in a lexer, test fixtures as prose), deleted-file parsing, PR base not in the clone, unreadable gh output, valueless `--base` and `--pr`, remote-only default branches, the PR tree, quoted paths, and one shared JSONL reader. No round 2, because each fix has its own failing-first test. eslint wasn't run here: `npx --yes eslint` was denied in this session, so CI runs it.
+- 2026-11-26: S3 Touch gains `cli/lib/verify.mjs` (evidence records get a `v` field, which the schema doc needs) and `test/review.test.mjs`. A background security review of aa61039 found two issues in `diffFiles`. It read untracked files without an lstat, so a symlink or FIFO would have been opened, and that is fixed with a size cap and a new test that failed first. Diffs also ran textconv drivers, now off. A clean filter defined in `.git/config` can still run during a working-tree diff, as it would for a plain `git diff`. `jig review` is a CLI command inside the sandbox, not a hook, and a comment says hooks must never call `diffFiles`. The new test only adds a case to the protected C2 file.
+- 2026-11-26 09:23: jig verify S3: C5 pass; C6 pass; R3 pass
+- 2026-11-26 09:25: jig verify S3: C5 pass; C6 pass; R3 pass
+- 2026-11-26: S3 done. `jig review --record <findings.json>` validates a review (verdict, severity, confidence required on Important, file, line, class, title) and appends it to `reviews.jsonl` with `v`, `head`, `base` and `tree`. `--outcome <id> <outcome>` appends an outcome line. Finding ids hash class, file and the normalized title, so they survive line moves. Evidence and observe records now carry `v: 1`, SessionStart keeps the transcript path in session state, and `docs/evidence-schema.md` documents all four files, with a test that fails if a written field is missing from it. The diff review gave fix first with 5 findings, all applied with tests that failed first. The findings JSON must now carry base, head and tree from the brief, and a record is refused if the tree moved since. PR records keep tree null and the PR head. Duplicate ids in one review are refused, the doc gives the exact id recipe, and `--base` with no value is checked before `--record`.
