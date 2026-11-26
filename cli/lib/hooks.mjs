@@ -75,7 +75,7 @@ export function sessionStart(input) {
   if (repoRoot(root)) {
     const st = sessionState(root, input);
     const head = st.data.startHead ? null : headSha(root, { short: false });
-    if (head) { st.data.startHead = head; st.data.userConfig = userConfig(); st.save(); }
+    if (head) { st.data.startHead = head; st.data.userConfig = userConfig(root); st.save(); }
   }
   const parts = [];
   if (process.env.JIG_NUDGE !== 'off') parts.push(NUDGE);
@@ -328,7 +328,9 @@ export function installedPackages(command) {
       const toks = rest.trim().split(/\s+/).filter(Boolean);
       // plain: only flags known not to change where packages come from, and
       // no env assignment before the installer (see isDeclared).
-      let plain = !SETS.test(line.slice(0, m.index)) && !CD.test(line.slice(0, m.index));
+      // Nothing may come before the installer in its segment (env, sudo, a
+      // keyword): see segmentDirs.
+      let plain = line.slice(0, m.index).trim() === '';
       const mine = [];
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
@@ -442,25 +444,27 @@ function resolvesChanged(root, rev) {
   return ignored.length > 0 || [...status.split('\0').flatMap((e) => [e, e.slice(3)]), ...since.split('\0')].some((e) => e && RESOLVES.test(e));
 }
 
-// Each segment with the directory it runs in, or null when the command could
-// change install config in a way jig can't follow: a variable set, a builtin
-// that changes shell state, sudo, or a cd that leaves the repo, goes through
-// a subshell, or can't be read plainly. Fails closed on any of these words
-// anywhere in a segment that isn't an install.
-const SETS = /(?:^|[\s({!`])(?:[A-Za-z_]\w*=|(?:export|declare|typeset|local|readonly|set|unset|env|source|alias|eval|sudo|doas|popd)(?=\s|$|[;)}])|\.\s)/;
-const CD = /(?:^|[\s({!])(?:cd|pushd)(?:\s+(.*))?$/;
+// Each install segment with the directory it runs in, or null unless every
+// other segment is on a short allowlist: a plain `cd ./<path>` that stays in
+// the repo (resolved through symlinks), or an output filter (tail, head,
+// grep) with plain arguments. Allowlist, not denylist: three reviews in a
+// row found a new spelling of shell state (`then export`, `read`,
+// `printf -v`) that a list of words missed.
+// `./x` or `/x` only: a bare `cd x` is looked up in CDPATH, which the
+// shell profile can set without the hook seeing it.
+const CD = /^cd\s+((?:\.\/|\/)[\w./-]*)$/;
+const FILTER = /^(?:tail|head|grep)(?:\s+(?:-[\w-]+|[\w.,:-]+|'[^'$`\\]*'|"[^"$`\\]*"))*$/;
 function segmentDirs(root, cwd, cmd) {
+  // CDPATH can send a relative cd outside the directory it names.
+  if (process.env.CDPATH) return null;
   let dir = cwd;
   const out = [];
   for (const seg of shellSegments(cmd)) {
     if (installedPackages(seg).length) { out.push({ seg, dir }); continue; }
-    if (SETS.test(seg)) return null;
+    if (FILTER.test(seg)) continue;
     const cd = seg.match(CD);
-    if (!cd) continue;
-    if (/[(){}]/.test(seg)) return null;
-    const to = (cd[1] ?? '').trim().replace(/^(['"])(.*)\1$/, '$2');
-    if (!/^[\w./-]+$/.test(to) || to.split('/').includes('..') || to.startsWith('-')) return null;
-    try { dir = realpathSync(isAbsolute(to) ? to : join(dir, to)); } catch { return null; }
+    if (!cd || cd[1].split('/').includes('..')) return null;
+    try { dir = realpathSync(isAbsolute(cd[1]) ? cd[1] : join(dir, cd[1])); } catch { return null; }
     const rel = relative(root, dir);
     if (rel.startsWith('..') || isAbsolute(rel)) return null;
   }
@@ -469,16 +473,33 @@ function segmentDirs(root, cwd, cmd) {
 
 // User-level config that can point installs elsewhere. Fingerprinted at
 // SessionStart; a change since then means jig can't vouch for the source.
-function userConfig() {
+const configEnv = () => Object.entries(process.env).filter(([k, v]) => v && /^(?:npm_config_|pnpm_|yarn_|bun_|pip_|uv_)\w*(?:CONFIG_FILE|USERCONFIG|GLOBALCONFIG|RC_FILENAME|_CONFIG)$/i.test(k));
+// A relative config path (or a yarn rc file name, looked up per directory)
+// depends on where the install runs, so jig can't fingerprint it.
+const relativeConfigEnv = () => configEnv().some(([k, v]) => !isAbsolute(v) || /RC_FILENAME$/i.test(k));
+
+function userConfig(root) {
   const h = process.env.HOME ?? '';
-  const files = ['.npmrc', '.yarnrc', '.yarnrc.yml', '.bunfig.toml', '.config/pip/pip.conf', '.pip/pip.conf', 'Library/Application Support/pip/pip.conf', '.config/uv/uv.toml', '.config/pip/pip.ini']
-    .map((f) => join(h, f)).concat(join(dirname(process.execPath), '..', 'etc', 'npmrc'));
+  const xdg = process.env.XDG_CONFIG_HOME || join(h, '.config');
+  const files = [
+    ...['.npmrc', '.yarnrc', '.yarnrc.yml', '.bunfig.toml', '.pip/pip.conf', 'Library/Application Support/pip/pip.conf', 'Library/Preferences/pnpm/rc'].map((f) => join(h, f)),
+    ...[...new Set([xdg, join(h, '.config')])].flatMap((d) => ['pip/pip.conf', 'pip/pip.ini', 'uv/uv.toml', 'pnpm/rc'].map((f) => join(d, f))),
+    // Config files the environment names (PIP_CONFIG_FILE, NPM_CONFIG_USERCONFIG, ...).
+    ...configEnv().map(([, v]) => v),
+    '/etc/pip.conf', '/etc/xdg/pip/pip.conf', '/etc/uv/uv.toml', '/etc/npmrc',
+    join(dirname(process.execPath), '..', 'etc', 'npmrc'),
+    ...(process.env.VIRTUAL_ENV ? [join(process.env.VIRTUAL_ENV, 'pip.conf')] : []),
+  ];
+  // uv also reads uv.toml from the directories above the project.
+  for (let d = dirname(root); d !== dirname(d); d = dirname(d)) files.push(join(d, 'uv.toml'));
   const hash = createHash('sha256');
   for (const f of files) {
     hash.update(f).update('\0');
     try { hash.update(readFileSync(f)); } catch (e) { hash.update(`missing:${e.code}`); }
     hash.update('\0');
   }
+  // The registry settings the hook's own environment carries.
+  for (const [k, v] of Object.entries(process.env).filter(([k]) => /^(?:npm_config_|pnpm_|yarn_|bun_|pip_|uv_)|^(?:HOME|XDG_CONFIG_HOME|VIRTUAL_ENV)$/i.test(k)).sort()) hash.update(`${k}=${v}\0`);
   return hash.digest('hex');
 }
 
@@ -604,7 +625,7 @@ export function preBash(input) {
   // sets no variable and doesn't leave the repo.
   let pkgs = installedPackages(cmd);
   const st = pkgs.some((p) => p.plain) && !CONFIG_WORDS.test(cmd) ? sessionState(root, input).data : {};
-  const rev = st.startHead && st.userConfig === userConfig() ? st.startHead : null;
+  const rev = st.startHead && st.userConfig === userConfig(root) && !relativeConfigEnv() ? st.startHead : null;
   const segs = rev ? segmentDirs(root, realCwd(input.cwd ?? root), cmd) : null;
   if (segs && !resolvesChanged(root, rev)) {
     const ctx = {};

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.5 (2026-11-26)
+
+The declared-install skip now works from an allowlist. 2.4.3 and 2.4.4 tried to list the shell features that could redirect an install, and each security review found one the list missed (`then export`, `read`, `printf -v`, a quoted `cd`).
+
+- **An install of a declared name skips the ask only when every other segment is a plain `cd ./<path>` or `cd /<path>` inside the repo or an output filter (`tail`, `head`, `grep` with plain arguments), and nothing comes before the installer in its own segment.** Anything else asks, including `npm i lodash && npm test`. That costs an occasional ask, which is the cheaper failure.
+- **The config fingerprint covers more places:** `$XDG_CONFIG_HOME` pip, uv and pnpm config, pnpm's macOS rc, `/etc` pip, uv and npm config, `$VIRTUAL_ENV/pip.conf`, `uv.toml` in every directory above the repo, `~/.config` even when `$XDG_CONFIG_HOME` points elsewhere, any config file an environment variable names (`PIP_CONFIG_FILE`, `NPM_CONFIG_USERCONFIG` and the like; a relative one asks), and the hook's own registry environment variables.
+- **`cd -`, a bare `cd web` and a set `CDPATH` ask,** since each can send `cd` outside the directory it names (a CDPATH set in the shell profile is invisible to the hook). Write `cd ./web`.
+
 ## 2.4.4 (2026-11-26)
 
 Closes four gaps that a security review found in 2.4.3's declared-install skip. In each case 2.4.3 stayed quiet where 2.4.2 asked.

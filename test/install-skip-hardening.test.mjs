@@ -34,8 +34,8 @@ test('a variable set or a directory changed behind a shell keyword or mid-segmen
 test('each install is judged in the directory it runs in', () => {
   const { dir } = repo();
   assert.ok(asked(bash(dir, 'npm i astro && cd web && npm i lodash')), 'astro runs at the root, lodash in web/');
-  assert.equal(bash(dir, 'npm i lodash && cd web && npm i astro'), null);
-  assert.equal(bash(dir, 'cd web && npm i astro'), null);
+  assert.equal(bash(dir, 'npm i lodash && cd ./web && npm i astro'), null);
+  assert.equal(bash(dir, 'cd ./web && npm i astro'), null);
 });
 
 test('a cd through a symlink that leaves the repo asks', () => {
