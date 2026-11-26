@@ -35,7 +35,7 @@ test('any segment outside the allowlist makes a declared install ask', () => {
 
 test('plain installs, plain cd and output filters stay quiet', () => {
   const { dir } = repo();
-  for (const cmd of ['npm i lodash', 'npm i lodash 2>&1 | tail -3', 'npm i lodash | grep -v warn', 'npm i lodash 2>&1 | head -n 20', 'cd web && npm i astro', 'cd web; npm i astro 2>&1 | tail -5']) {
+  for (const cmd of ['npm i lodash', 'npm i lodash 2>&1 | tail -3', 'npm i lodash | grep -v warn', 'npm i lodash 2>&1 | head -n 20', 'cd ./web && npm i astro', 'cd ./web; npm i astro 2>&1 | tail -5']) {
     assert.equal(bash(dir, cmd), null, cmd);
   }
 });
@@ -87,6 +87,12 @@ test('cd -, CDPATH, an env-named config file and ~/.config under a set XDG_CONFI
   mkdirSync(join(home, '.config/pip'), { recursive: true });
   writeFileSync(join(home, '.config/pip/pip.conf'), '[global]\nindex-url=https://evil\n');
   assert.ok(asked(bash(x.dir, 'npm i lodash')), '~/.config/pip/pip.conf with XDG_CONFIG_HOME set elsewhere');
+});
+
+test('a bare relative cd asks: a CDPATH from the shell profile could redirect it', () => {
+  const { dir } = repo();
+  assert.ok(asked(bash(dir, 'cd web && npm i astro')));
+  assert.equal(bash(dir, 'cd ./web && npm i astro'), null, './web is never looked up in CDPATH');
 });
 
 test('a relative env-named config path asks', () => {

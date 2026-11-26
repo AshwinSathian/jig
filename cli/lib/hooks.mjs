@@ -445,12 +445,14 @@ function resolvesChanged(root, rev) {
 }
 
 // Each install segment with the directory it runs in, or null unless every
-// other segment is on a short allowlist: a plain `cd <path>` that stays in
+// other segment is on a short allowlist: a plain `cd ./<path>` that stays in
 // the repo (resolved through symlinks), or an output filter (tail, head,
 // grep) with plain arguments. Allowlist, not denylist: three reviews in a
 // row found a new spelling of shell state (`then export`, `read`,
 // `printf -v`) that a list of words missed.
-const CD = /^cd\s+([\w./][\w./-]*)$/;
+// `./x` or `/x` only: a bare `cd x` is looked up in CDPATH, which the
+// shell profile can set without the hook seeing it.
+const CD = /^cd\s+((?:\.\/|\/)[\w./-]*)$/;
 const FILTER = /^(?:tail|head|grep)(?:\s+(?:-[\w-]+|[\w.,:-]+|'[^'$`\\]*'|"[^"$`\\]*"))*$/;
 function segmentDirs(root, cwd, cmd) {
   // CDPATH can send a relative cd outside the directory it names.

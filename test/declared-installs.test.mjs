@@ -157,7 +157,7 @@ test('a variable set or a directory left in an earlier segment makes installs as
   for (const cmd of ['export HOME=/tmp/evil; npm i lodash', 'HOME=/tmp/evil && npm i lodash', '(HOME=/tmp/x; npm i lodash)', 'cd /tmp && npm i lodash', 'cd .. && npm i lodash', 'cd ~ && npm i lodash', 'cd && npm i lodash', 'source evil.sh; npm i lodash', 'pushd /tmp; npm i lodash']) {
     assert.ok(asked(bash(dir, cmd, { session_id: 'c' })), cmd);
   }
-  assert.equal(bash(dir, 'cd web && npm i astro', { session_id: 'c' }), null);
+  assert.equal(bash(dir, 'cd ./web && npm i astro', { session_id: 'c' }), null);
 });
 
 // jig observe: what the owner reads before deciding whether a gate enforces.
