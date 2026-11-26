@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync, appendFileSync, mkdtempSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
 import { planRepo } from './helpers.mjs';
 import { reviewBrief } from '../cli/lib/review.mjs';
@@ -184,4 +185,32 @@ test('an assertion re-added inside a block comment still counts as removed', () 
     '',
   ].join('\n'));
   assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
+});
+
+test('mid-line comments and template literals hide assertions; glob strings do not; a binary test is a signal', () => {
+  const { dir, start } = repo();
+  writeFileSync(join(dir, 'test/b.test.js'), [
+    "import assert from 'node:assert';",
+    "const glob = '**/*.js';",
+    "test('adds', () => {",
+    '  assert.equal(add(1, 2), 3); /*',
+    '  assert.equal(add(-1, 1), 0);',
+    '  */',
+    '});',
+    '',
+  ].join('\n'));
+  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
+  writeFileSync(join(dir, 'test/b.test.js'), [
+    "import assert from 'node:assert';",
+    "test('adds', () => {",
+    '  assert.equal(add(1, 2), 3);',
+    '  const fixture = `',
+    '  assert.equal(add(-1, 1), 0);',
+    '  `;',
+    '});',
+    '',
+  ].join('\n'));
+  assert.deepEqual(kinds(reviewBrief(dir, { base: start })), ['assertion-removed test/b.test.js:4']);
+  writeFileSync(join(dir, 'test/b.test.js'), Buffer.from([0, 1, 2, 0, 255]));
+  assert.ok(kinds(reviewBrief(dir, { base: start })).some((k) => k.startsWith('test-binary test/b.test.js')));
 });

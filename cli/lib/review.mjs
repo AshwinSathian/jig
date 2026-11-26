@@ -262,16 +262,28 @@ function planDirs(root, base, pd) {
   return [...new Set([pd, configPlansDir(cfg), 'docs/plans', 'docs/plan'].filter(Boolean))];
 }
 
-// Line numbers inside a /* ... */ block that opens at the start of a line,
-// so an assertion moved into a comment doesn't count as kept.
-// ponytail: line-start blocks only, so glob strings ('**/*.js') don't open
-// one; a comment opened mid-line is missed. Use a tokenizer if that matters.
+// Line numbers that start inside a block comment, a template literal or a
+// triple-quoted string, or that open a block comment, so an assertion moved
+// into one doesn't count as kept. A small scanner, not a parser: '' and ""
+// strings end at the line, which is enough to keep `'**/*.js'` from opening
+// a comment. A comment opened mid-line hides what follows (fail closed).
 function commentLines(text) {
-  const out = new Set(); let open = false;
-  text.split('\n').forEach((l, i) => {
-    if (!open && /^\s*\/\*/.test(l) && !l.includes('*/', l.indexOf('/*') + 2)) open = true;
-    else if (open && l.includes('*/')) { open = false; out.add(i + 1); return; }
-    if (open) out.add(i + 1);
+  const out = new Set(); let state = 'code';
+  text.split('\n').forEach((l, n) => {
+    if (state !== 'code' || /^\s*\/\*/.test(l)) out.add(n + 1);
+    let q = null;
+    for (let i = 0; i < l.length; i++) {
+      const c = l[i]; const two = l.slice(i, i + 2); const three = l.slice(i, i + 3);
+      if (state === 'block') { if (two === '*/') { state = 'code'; i++; } continue; }
+      if (state === 'tpl') { if (c === '\\') i++; else if (c === '`') state = 'code'; continue; }
+      if (state === 'tq') { if (three === q) { state = 'code'; i += 2; q = null; } continue; }
+      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+      if (two === '//' || c === '#') break;
+      if (two === '/*') { state = 'block'; i++; continue; }
+      if (three === '"""' || three === "\'\'\'") { state = 'tq'; q = three; i += 2; continue; }
+      if (c === '`') { state = 'tpl'; continue; }
+      if (c === "'" || c === '"') q = c;
+    }
   });
   return out;
 }
@@ -291,8 +303,10 @@ export function tamperSignals(root, base, files, pd, head = null) {
   // one, since a rewrite is still a reason to look.
   const live = (text) => {
     const hidden = commentLines(text);
-    return text.split('\n').map((l, i) => ({ l: l.trim(), at: i + 1 })).filter(({ l, at }) => ASSERTION.test(l) && !/^(?:\/\/|#)/.test(l) && !hidden.has(at));
+    return text.split('\n').map((l, i) => ({ l: l.replace(/\s*\/\*.*$|\s+\/\/.*$/, '').trim(), at: i + 1 })).filter(({ l, at }) => ASSERTION.test(l) && !/^(?:\/\/|#)/.test(l) && !hidden.has(at));
   };
+  // A binary test can't be read for assertions, so it's a signal itself.
+  for (const f of files) if (isTest(f.path) && f.binary) out.push({ signal: 'test-binary', file: f.path, line: 1, side: 'head' });
   const tests = files.filter((f) => isTest(f.path) && !f.binary);
   const headLive = new Set(tests.flatMap((f) => live(headText(f.path)).map((x) => x.l)));
   for (const f of tests) {
