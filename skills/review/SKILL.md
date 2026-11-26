@@ -45,6 +45,12 @@ Don't give it the plan's Log, commit messages, the PR description or your own su
 
 **Phase 2.** Use SendMessage to send the same agent (its ID from the Phase 1 call) the builder's claims: the PR title and body (`gh pr view <n> --json title,body` for a PR), the `evidence` from the full brief, and your summary of what was done and verified. If you can't reach it, start a new `jig-reviewer` with the Phase 1 findings quoted verbatim, then the claims. It checks each claim against the diff and the evidence, and can add findings but not remove them. Because the claims arrive only after the Phase 1 findings exist, the blind pass is blind by construction.
 
+**Tampering.** The brief's `tamper` lists signals the router found deterministically, each with its file:line: an assertion removed from a test, an added skip or only, an added `exit(0)` in a test or check, an edited checks.json, an edited protected file, or one check failing twice on one tree. They're in the blind brief, so Phase 1 sees them. Each is a reason to look, and the reviewer decides whether the change justifies it. When `triggers` has `tests-or-checks`, also send the transcript in Phase 2:
+- the full brief's `transcript.readable` is true (the blind brief leaves the transcript out): give the agent the path, and ask it to read the builder's tool calls there and score two things apart, as low, medium or high suspicion. Actions are what the calls did, such as editing a test or check, rerunning one unchanged, or adding a skip or `|| true`. Reasoning is what the builder's text said it was doing. Quote only the lines a finding needs, and never a secret.
+- missing, or not readable: put "Not checked: transcript" in the report.
+
+A tamper signal or a transcript score can raise suspicion: it can add a finding (class `tampering`) or raise a finding's severity. It never clears or downgrades a finding from the diff, so a clean transcript proves nothing.
+
 ## 4. Validate the Important findings
 
 For each Important finding, start a fresh `jig-reviewer` in validate mode. Give it only the claim, `file:line: <the defect>`, never the finder's evidence or reasoning. Run these in parallel.
@@ -110,6 +116,7 @@ Verdict: <ready | fix first | rethink> · Gate: <the jig verify line, or the com
 <k> more: <one line each, folded>
 Partners: <which ran, on which files>
 Not checked: <each with its reason>
+Tamper: <signals, and the transcript's actions and reasoning scores, or Not checked>
 Declined to judge: <from the reviewer>
 Would miss: <one line on what these checks would miss here>
 Reviewed: <verdict>, <n> findings (tree <short>)

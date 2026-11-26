@@ -2,12 +2,12 @@
 // only git (hardened, through git.mjs) and, for --pr, gh. It never runs a
 // repo's own commands: the gate is the review skill's job.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, lstatSync, appendFileSync } from 'node:fs';
+import { readFileSync, lstatSync, appendFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { git, isCommit, stateDir } from './git.mjs';
 import { activePlans, doingSlice, plansDir } from './status.mjs';
-import { lastEvidence, workTree, readJsonl } from './verify.mjs';
+import { lastEvidence, workTree, readJsonl, evidence } from './verify.mjs';
 import { loadChecks } from './checks.mjs';
 import { section } from './plan.mjs';
 import { diagnose } from './doctor.mjs';
@@ -105,20 +105,26 @@ export function diffFiles(root, base, head = null) {
   const files = new Map();
   for (const rec of stat.split('\0').filter(Boolean)) {
     const [a, d, ...p] = rec.split('\t');
-    files.set(p.join('\t'), { path: p.join('\t'), adds: a === '-' ? 0 : Number(a), dels: d === '-' ? 0 : Number(d), binary: a === '-', added: [], removed: [] });
+    files.set(p.join('\t'), { path: p.join('\t'), adds: a === '-' ? 0 : Number(a), dels: d === '-' ? 0 : Number(d), binary: a === '-', added: [], removed: [], addedAt: [], removedAt: [] });
   }
   // Headers name the file on each side; /dev/null on one side is an add or a
   // delete. Content lines are read only inside hunks.
-  let cur = null; let from = null; let inHunk = false;
+  // addedAt and removedAt hold each line's number, on the new and old side.
+  let cur = null; let from = null; let inHunk = false; let oldNo = 0; let newNo = 0;
   for (const l of patch.split('\n')) {
     if (l.startsWith('diff --git ')) { cur = null; from = null; inHunk = false; continue; }
     // git ends a header with a tab when the path has a space.
     if (!inHunk && l.startsWith('--- ')) { from = l === '--- /dev/null' ? null : l.replace(/^--- a\//, '').replace(/\t$/, ''); continue; }
     if (!inHunk && l.startsWith('+++ ')) { cur = files.get(l === '+++ /dev/null' ? from : l.replace(/^\+\+\+ b\//, '').replace(/\t$/, '')) ?? null; continue; }
-    if (l.startsWith('@@')) { inHunk = true; continue; }
+    if (l.startsWith('@@')) {
+      inHunk = true;
+      const h = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)/);
+      if (h) { oldNo = Number(h[1]); newNo = Number(h[2]); }
+      continue;
+    }
     if (!inHunk || !cur) continue;
-    if (l.startsWith('+')) cur.added.push(l.slice(1));
-    else if (l.startsWith('-')) cur.removed.push(l.slice(1));
+    if (l.startsWith('+')) { cur.added.push(l.slice(1)); cur.addedAt.push(newNo++); }
+    else if (l.startsWith('-')) { cur.removed.push(l.slice(1)); cur.removedAt.push(oldNo++); }
   }
   if (!head) {
     for (const p of lines(git(root, [...q, 'ls-files', '--others', '--exclude-standard']))) {
@@ -130,7 +136,7 @@ export function diffFiles(root, base, head = null) {
         if (st.isFile() && st.size <= MAX_UNTRACKED) text = readFileSync(join(root, p), 'utf8');
       } catch { /* unreadable: list it with no lines */ }
       const added = text.split('\n'); if (added[added.length - 1] === '') added.pop();
-      files.set(p, { path: p, adds: added.length, dels: 0, binary: false, added, removed: [], untracked: true });
+      files.set(p, { path: p, adds: added.length, dels: 0, binary: false, added, removed: [], addedAt: added.map((_, i) => i + 1), removedAt: [], untracked: true });
     }
   }
   return [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -218,6 +224,111 @@ export function triggersFor(files, { plansDir: pd = 'docs/plans' } = {}) {
   const docsOnly = files.length && files.every((f) => isDoc(f.path));
   if (docsOnly && lines <= TRIVIAL_LINES && files.length <= TRIVIAL_FILES && out.every((t) => t.id === 'prose')) out.push({ id: 'trivial', partner: null, files: files.map((f) => f.path) });
   return out;
+}
+
+// ---------- tamper signals ----------
+
+// Ways a builder can make checks pass without making the code right. Found
+// from the diff and evidence.jsonl, never from a model, and each comes with
+// where to look. A signal is a reason to look closer, not a verdict.
+const ASSERTION = /\b(?:assert\w*|expect)\s*[.(]|\bself\.assert\w*\(|\bt\.(?:is|not|true|false|ok|equal|deepEqual|throws|regex)\s*\(|\.should\b|^\s*assert\s|\bt\.(?:Error|Fatal)f?\(/;
+// Anchored to the start of a statement, so a test's own fixture strings
+// (`'test.only(...)'`) and titles don't match.
+const SKIP = /^\s*(?:\b(?:it|test|describe|context|suite)\.(?:skip|only|todo)(?:If)?\s*\(|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.skip|\b(?:t|pytest)\.skip\(|(?:it|test|describe)\s*\(\s*(['"\x60]).*?\1\s*,\s*\{[^}]*\b(?:skip|only|todo)\s*:)/;
+const EXIT_ZERO = /^\s*(?:if\s*\(.*\)\s*)?(?:process\.|sys\.|os\._)?exit\(\s*0\s*\)/;
+// Shell forms, read only outside test files, where they would be fixtures.
+const SHELL_PASS = /(?:^|&&|\|\||;)\s*exit\s+0\b|\|\|\s*true\b|continue-on-error:\s*true|^\s*set\s+\+e\b/;
+const checksOrCi = TRIGGERS.find((t) => t.id === 'tests-or-checks').match;
+
+// Protected paths as the base's checks.json files list them, so a change
+// can't unprotect a file and edit it in one go.
+function baseProtects(root, base, pd) {
+  const listed = lines(git(root, ['ls-tree', '-r', '--name-only', base, '--', `${pd}/`]));
+  const protects = []; const unreadable = [];
+  for (const p of listed.filter((x) => x.endsWith('/checks.json'))) {
+    let c = null;
+    try { c = JSON.parse(git(root, ['show', `${base}:${p}`]) ?? ''); } catch { /* reported below */ }
+    if (Array.isArray(c?.checks)) protects.push(...c.checks.flatMap((x) => x.protects ?? []));
+    else unreadable.push(p);
+  }
+  return { protects, unreadable };
+}
+
+export function tamperSignals(root, base, files, pd) {
+  const { protects, unreadable } = baseProtects(root, base, pd);
+  const out = unreadable.map((p) => ({ signal: 'checks-unreadable', file: p, line: 1, side: 'base' }));
+  // Each removed assertion that the change doesn't re-add in any test file.
+  // Pooling across files means a moved or re-indented one isn't reported;
+  // new assertions never offset a deleted one, since a rewrite is still a
+  // reason to look.
+  const tests = files.filter((f) => isTest(f.path));
+  const asserts = (f, side) => f[side].filter((l) => ASSERTION.test(l)).map((l) => l.trim());
+  const addedAll = new Set(tests.flatMap((f) => asserts(f, 'added')));
+  const goneBy = tests.map((f) => ({ f, gone: f.removed.map((l, i) => ({ l: l.trim(), at: f.removedAt[i] })).filter(({ l }) => ASSERTION.test(l) && !addedAll.has(l)) }));
+  for (const { f, gone } of goneBy) if (gone.length) out.push({ signal: 'assertion-removed', file: f.path, line: gone[0].at, side: 'base', text: gone[0].l, count: gone.length });
+  for (const f of files) {
+    const first = f.addedAt[0] ?? f.removedAt[0] ?? 1;
+    const side = f.addedAt.length ? 'head' : 'base';
+    if (isTest(f.path)) {
+      f.added.forEach((l, i) => {
+        const m = l.match(SKIP);
+        if (m) out.push({ signal: /only|\bf(?:it|describe)/.test(m[0]) ? 'only' : 'skip', file: f.path, line: f.addedAt[i], text: l.trim() });
+      });
+    }
+    if (checksOrCi(f, { plansDir: pd })) {
+      f.added.forEach((l, i) => {
+        if (EXIT_ZERO.test(l)) out.push({ signal: 'exit-zero', file: f.path, line: f.addedAt[i], text: l.trim() });
+        else if (!isTest(f.path) && SHELL_PASS.test(l)) out.push({ signal: 'swallowed-failure', file: f.path, line: f.addedAt[i], text: l.trim() });
+      });
+    }
+    if ((f.path.startsWith(`${pd}/`) || f.path.startsWith('docs/plans/')) && f.path.endsWith('/checks.json')) out.push({ signal: 'checks-edited', file: f.path, line: first, side });
+    // A protected file the change creates is the slice's own new test.
+    else if (protects.some((p) => pathMatches(f.path, p)) && git(root, ['cat-file', '-e', `${base}:${f.path}`]) !== null) out.push({ signal: 'protected', file: f.path, line: first, side });
+  }
+  // The same check failing twice on one tree since the base was committed:
+  // a rerun with nothing changed is a retry, which hides a flaky or a real
+  // failure.
+  const since = Date.parse(git(root, ['show', '-s', '--format=%cI', base])?.trim() ?? '') || 0;
+  const fails = new Map();
+  for (const r of evidence(root)) {
+    const t = typeof r.t === 'number' ? r.t : Date.parse(r.t);
+    if (!r.tree || !(t >= since)) continue;
+    for (const x of r.results ?? []) {
+      if (x.pass) continue;
+      const k = `${r.plan}\0${x.id}\0${r.tree}`;
+      fails.set(k, { plan: r.plan, check: x.id, tree: r.tree, count: (fails.get(k)?.count ?? 0) + 1 });
+    }
+  }
+  for (const v of fails.values()) if (v.count >= 2) out.push({ signal: 'repeat-fail', ...v });
+  return out;
+}
+
+// The newest session's transcript path, and whether it can be read: it
+// exists and every line parses. Only the path is kept, never the content.
+// Only a session that started at or after the base and edited files can
+// have built this change; any other transcript would be scored as if it had.
+const TRANSCRIPT_MAX = 64 * 1024 * 1024;
+export function transcriptInfo(root, base) {
+  const dir = join(stateDir(root), 'sessions');
+  let newest = null;
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      let d; try { d = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; }
+      const m = statSync(join(dir, f)).mtimeMs;
+      // It must have edited something: a fresh review session hasn't.
+      if (typeof d.transcript !== 'string' || typeof d.startHead !== 'string' || !d.editedAt) continue;
+      if (git(root, ['merge-base', '--is-ancestor', base, d.startHead]) === null) continue;
+      if (!newest || m > newest.m) newest = { m, path: d.transcript };
+    }
+  } catch { return null; }
+  if (!newest) return null;
+  let readable = false;
+  try {
+    const st = lstatSync(newest.path);
+    if (st.isFile() && st.size <= TRANSCRIPT_MAX) readable = readFileSync(newest.path, 'utf8').split('\n').filter(Boolean).every((l) => { try { JSON.parse(l); return true; } catch { return false; } });
+  } catch { /* missing: not readable */ }
+  return { path: newest.path, readable };
 }
 
 // ---------- REVIEW.md from the base ----------
@@ -368,6 +479,9 @@ export function reviewBrief(root, opts = {}) {
     stats: { files: files.length, adds: files.reduce((n, f) => n + f.adds, 0), dels: files.reduce((n, f) => n + f.dels, 0) },
     files: files.map(({ path, adds, dels, binary, untracked }) => ({ path, adds, dels, ...(binary ? { binary } : {}), ...(untracked ? { untracked } : {}) })),
     triggers: triggersFor(files, { plansDir: pd }),
+    tamper: tamperSignals(root, b.base, files, pd),
+    // A working-tree review only: a PR or committed range has no session.
+    transcript: b.head || b.pr ? null : transcriptInfo(root, b.base),
     reviewMd: reviewText === null ? null : reviewMdEntries(reviewText, files),
     checks,
     gate,
@@ -377,7 +491,7 @@ export function reviewBrief(root, opts = {}) {
   };
   // --blind: what a first, blind pass may see. The earlier verdict and the
   // evidence record are opinions and claims, so they wait for Phase 2.
-  if (opts.blind) { delete brief.review; delete brief.evidence; }
+  if (opts.blind) { delete brief.review; delete brief.evidence; delete brief.transcript; }
   return brief;
 }
 
@@ -396,6 +510,8 @@ export function formatBrief(b) {
     for (const e of b.reviewMd.matched) out.push(`REVIEW.md: ${e.check} (Source: ${e.source}) on ${e.files.join(', ')}`);
     if (b.reviewMd.judge.length) out.push(`REVIEW.md: ${b.reviewMd.judge.length} entr${b.reviewMd.judge.length === 1 ? 'y' : 'ies'} with no path trigger, for the reviewer to judge`);
   }
+  for (const t of b.tamper ?? []) out.push(`Tamper ${t.signal}: ${t.file ? `${t.side === 'base' ? 'base:' : ''}${t.file}:${t.line}` : `${t.check} failed ${t.count} times on tree ${short(t.tree)}`}${t.text ? ` (${t.text.slice(0, 80)})` : ''}`);
+  if (b.transcript) out.push(`Transcript: ${b.transcript.readable ? b.transcript.path : 'not readable'}`);
   out.push(`Gate: ${b.checks ? 'jig verify (checks.json)' : b.gate.D1?.level === 'ok' ? b.gate.D1.msg : 'no checks.json and no one-command verify'}${b.gate.D7?.level === 'ok' ? `; ${b.gate.D7.msg}` : ''}`);
   out.push(`Evidence: ${b.evidence ? `${b.evidence.pass ? 'pass' : 'FAIL'} at tree ${short(b.evidence.tree)} (${b.evidence.current ? 'current' : 'stale'})` : 'none'}`);
   out.push(`Review: ${b.review ? `${b.review.verdict} at tree ${short(b.review.tree)} (${b.review.current ? 'current' : 'stale'})` : 'none'}`);
