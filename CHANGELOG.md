@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.6 (2026-11-26)
+
+Every install that names a package asks again, including one the repo already declares. 2.4.3 to 2.4.5 let a declared name through without an ask, and every security review of that skip found a way past it: shell expansion inside the command, globs, redirects onto repo files, config in ignored or parent directories, npm's builtin npmrc. The ask costs a click per install. Getting it wrong lets in a package nobody chose.
+
+- **The declared-install skip is gone,** along with the registry-config fingerprint it needed. Lockfile installs (`npm ci`, bare `npm install`, `pip install -r`) still don't ask.
+- **Installer spellings that never asked now do:** words between the tool and its verb (`npm -g i`, `npm --registry=... i`, `yarn global add`, `pnpm --global add`, `pip --isolated install`), npm's aliases (`in`, `isntall` and the rest), `pip3.14`, `bun a`, `composer global require`, `uv tool install`, and runners that fetch a package (`npx`, `pnpx`, `bunx`, `uvx`, `npm exec`, `pnpm dlx`). A runner asks for its first argument, so `npx tsc` asks too.
+
 ## 2.4.5 (2026-11-26)
 
 The declared-install skip now works from an allowlist. 2.4.3 and 2.4.4 tried to list the shell features that could redirect an install, and each security review found one the list missed (`then export`, `read`, `printf -v`, a quoted `cd`).
